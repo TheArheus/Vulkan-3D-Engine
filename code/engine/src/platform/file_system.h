@@ -18,8 +18,11 @@ VENG_API b8 FileExists(const char* Path);
 VENG_API b8 FileOpen(const char* Path, file_modes Mode, b8 Binary, file_handle* Handle);
 VENG_API void FileClose(file_handle* Handle);
 
-VENG_API b8 FileReadLine(file_handle* Handle, char** Line);
+VENG_API b8 FileSize(file_handle* Handle, u64* OutSize);
+
+VENG_API b8 FileReadLine(file_handle* Handle, u64 MaxLenght, char** Line, u64* OutLineLength);
 VENG_API b8 FileWriteLine(file_handle* Handle, const char* Line);
 VENG_API b8 FileRead(file_handle* Handle, u64 Size, void* OutData, u64* OutBytesRead);
-VENG_API b8 FileReadAllBytes(file_handle* Handle, u8** OutData, u64* OutBytesRead);
+VENG_API b8 FileReadAllBytes(file_handle* Handle, u8* OutData, u64* OutBytesRead);
 VENG_API b8 FileWrite(file_handle* Handle, u64 Size, const void* Data, u64* OutBytesWrite);
+VENG_API b8 FileReadAllText(file_handle* Handle, char* OutText, u64* OutBytesRead);

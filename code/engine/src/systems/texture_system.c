@@ -7,8 +7,7 @@
 
 #include "renderer/renderer_frontend.h"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "vendor/stb_image.h"
+#include "resources/loaders/image_loader.h"
 
 typedef struct texture_system_state
 {
@@ -31,67 +30,67 @@ static texture_system_state* StatePtr = 0;
 
 b8 LoadTexture(const char* TextureName, texture* Texture)
 {
-    const char* FormatStr = "assets/textures/%s.%s";
-    const s32 RequiredChannelCount = 4;
-    stbi_set_flip_vertically_on_load(true);
-    char FullFilePath[512];
+    resource ImageResource;
+    if(!ResourceSystemLoad(TextureName, RESOURCE_TYPE_IMAGE, &ImageResource))
+    {
+        VENG_ERROR("Failed to load image resource for texture");
+        return false;
+    }
 
-    StringFormat(FullFilePath, FormatStr, TextureName, "png");
+    image_resource_data* ResourceData = ImageResource.Data;
 
     texture TempTexture;
+    TempTexture.Width = ResourceData->Width;
+    TempTexture.Height = ResourceData->Height;
+    TempTexture.ChannelCount = ResourceData->ChannelCount;
 
-    u8* Data = stbi_load(FullFilePath, (s32*)&TempTexture.Width, (s32*)&TempTexture.Height, (s32*)&TempTexture.ChannelCount, RequiredChannelCount);
-    TempTexture.ChannelCount = RequiredChannelCount;
+    u32 CurrentGeneration = Texture->Generation;
+    Texture->Generation = INVALID_ID;
 
-    if(Data)
+    u64 TotalSize = TempTexture.Width * TempTexture.Height * TempTexture.ChannelCount;
+    b32 HasTransparency = false;
+    for(u32 i = 0; i < TotalSize; i += TempTexture.ChannelCount)
     {
-        u32 CurrentGeneration = Texture->Generation;
-        Texture->Generation = INVALID_ID;
-
-        u64 TotalSize = TempTexture.Width * TempTexture.Height * RequiredChannelCount;
-        b32 HasTransparency = false;
-        for(u32 i = 0; i < TotalSize; i += RequiredChannelCount)
+        u8 a = ResourceData->Pixels[i + 3];
+        if(a < 255)
         {
-            u8 a = Data[i + 3];
-            if(a < 255)
-            {
-                HasTransparency = true;
-                break;
-            }
+            HasTransparency = true;
+            break;
         }
+    }
 
-        if(stbi_failure_reason())
-        {
-            VENG_WARN("LoadTexture() failed to load '%s': %s", FullFilePath, stbi_failure_reason());
-        }
+    StringCopyN(TempTexture.Name, TextureName, TEXTURE_NAME_MAX_LENGHT);
+    TempTexture.Generation = INVALID_ID;
+    TempTexture.HasTransparency = HasTransparency;
 
-        RendererCreateTexture(TextureName, TempTexture.Width, TempTexture.Height, RequiredChannelCount, Data, HasTransparency, &TempTexture);
+    RendererCreateTexture(ResourceData->Pixels, &TempTexture);
 
-        texture Old = *Texture;
-        *Texture = TempTexture;
+    texture Old = *Texture;
+    *Texture = TempTexture;
 
-        RendererDestroyTexture(&Old);
+    RendererDestroyTexture(&Old);
 
-        if(CurrentGeneration == INVALID_ID)
-        {
-            Texture->Generation = 0;
-        }
-        else
-        {
-            Texture->Generation = CurrentGeneration + 1;
-        }
-
-        stbi_image_free(Data);
-        return true;
+    if(CurrentGeneration == INVALID_ID)
+    {
+        Texture->Generation = 0;
     }
     else
     {
-        if(stbi_failure_reason())
-        {
-            VENG_WARN("LoadTexture() failed to load '%s': %s", FullFilePath, stbi_failure_reason());
-        }
-        return false;
+        Texture->Generation = CurrentGeneration + 1;
     }
+
+    ResourceSystemUnload(&ImageResource);
+    return true;
+}
+
+void DestroyTexture(texture* Texture)
+{
+    RendererDestroyTexture(Texture);
+    ZeroMemory(Texture->Name, sizeof(char) * TEXTURE_NAME_MAX_LENGHT);
+    ZeroMemory(Texture, sizeof(texture));
+
+    Texture->ID = INVALID_ID;
+    Texture->Generation = INVALID_ID;
 }
 
 b8 CreateDefaultTextures(texture_system_state* State);
@@ -234,22 +233,22 @@ void TextureSystemRelease(const char* Name)
             VENG_WARN("Trued to release non-existent texture: '%s'", Name);
             return;
         }
+        char NameCopy[TEXTURE_NAME_MAX_LENGHT];
+        StringCopyN(NameCopy, Name, TEXTURE_NAME_MAX_LENGHT);
+
         Ref.ReferenceCount--;
+
         if(Ref.ReferenceCount == 0 && Ref.AutoRelease)
         {
             texture* Texture = &StatePtr->RegisteredTextures[Ref.Handle];
 
-            RendererDestroyTexture(Texture);
-
-            ZeroMemory(Texture, sizeof(texture));
-            Texture->ID = INVALID_ID;
-            Texture->Generation = INVALID_ID;
+            DestroyTexture(Texture);
 
             Ref.Handle = INVALID_ID;
             Ref.AutoRelease = false;
         }
 
-        HashTableSet(&StatePtr->RegisteredTextureTable, Name, &Ref);
+        HashTableSet(&StatePtr->RegisteredTextureTable, NameCopy, &Ref);
     }
     else
     {
@@ -299,7 +298,13 @@ b8 CreateDefaultTextures(texture_system_state* State)
         }
     }
 
-    RendererCreateTexture(DEFAULT_TEXTURE_NAME, TexDim, TexDim, Channels, Pixels, false, &State->DefaultTexture);
+    StringCopyN(StatePtr->DefaultTexture.Name, DEFAULT_TEXTURE_NAME, TEXTURE_NAME_MAX_LENGHT);
+    StatePtr->DefaultTexture.Width  = TexDim;
+    StatePtr->DefaultTexture.Height = TexDim;
+    StatePtr->DefaultTexture.ChannelCount = 4;
+    StatePtr->DefaultTexture.Generation = INVALID_ID;
+    StatePtr->DefaultTexture.HasTransparency = false;
+    RendererCreateTexture(Pixels, &State->DefaultTexture);
     State->DefaultTexture.Generation = INVALID_ID;
     return true;
 }
@@ -308,7 +313,7 @@ void DestroyDefaultTexture(texture_system_state* State)
 {
     if(State)
     {
-        RendererDestroyTexture(&State->DefaultTexture);
+        DestroyTexture(&State->DefaultTexture);
     }
 }
 

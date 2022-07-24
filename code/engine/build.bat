@@ -14,7 +14,7 @@ for /R %%f in (*.c) do (
 )
 
 set Assembly=engine
-set CompilerFlags=-g -shared -Wno-missing-braces -fdeclspec
+set CompilerFlags=-g -shared -Wno-missing-braces -Wno-deprecated -fdeclspec
 set IncludeFlags=-Isrc -I../testbet/src/ -I%INC_VULKAN%
 set LinkerFlags=-luser32 -lvulkan-1 -L%LIB_VULKAN%
 set Defines=-D_MBCS -D_DEBUG -DVENG_EXPORT

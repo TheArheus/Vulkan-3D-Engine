@@ -9,9 +9,14 @@ void VulkanRendererBackendResized(renderer_backend* Backend, u16 Width, u16 Heig
 
 b8 VulkanRendererBackendBeginFrame(renderer_backend* Backend, r32 DeltaTime);
 void VulkanRendererUpdateGlobalState(mat4 Projection, mat4 View, v3 ViewPosition, v4 AmbientColor, s32 Mode);
-void VulkanUpdateObject(geometry_render_data RenderData);
+void VulkanDrawGeometry(geometry_render_data RenderData);
 b8 VulkanRendererBackendEndFrame(renderer_backend* Backend, r32 DeltaTime);
 
-void VulkanCreateTexture(const char* Name, u32 Width, u32 Height, u32 ChannelCount, const u8* Pixels, b8 HasTransparency, texture* OutTexture);
+void VulkanCreateTexture(const u8* Pixels, texture* Texture);
 void VulkanDestroyTexture(texture* Texture);
 
+b8 VulkanRendererCreateMaterial(material* Material);
+void VulkanRendererDestroyMaterial(material* Material);
+
+b8 VulkanRendererCreateGeometry(geometry* Geometry, u32 VertexCount, const vertex_3d* Vertices, u32 IndexCount, const u32* Indices);
+void VulkanRendererDestroyGeometry(geometry* Geometry);

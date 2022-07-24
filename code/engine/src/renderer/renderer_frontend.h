@@ -11,5 +11,11 @@ b8 RendererDrawFrame(render_packet* Packet);
 
 VENG_API void RendererSetView(mat4* View);
 
-void RendererCreateTexture(const char* Name, u32 Width, u32 Height, u32 ChannelCount, const u8* Pixels, b8 HasTransparency, texture* OutTexture);
+void RendererCreateTexture(const u8* Pixels, texture* Texture);
 void RendererDestroyTexture(texture* Texture);
+
+b8 RendererCreateMaterial(material* Material);
+void RendererDestroyMaterial(material* Material);
+
+b8 RendererCreateGeometry(geometry *Geometry, u32 VertexCount, const vertex_3d *Vertices, u32 IndexCount, const u32* Indices);
+void RendererDestroyGeometry(geometry* Geometry);

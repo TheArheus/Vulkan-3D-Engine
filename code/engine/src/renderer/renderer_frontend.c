@@ -10,6 +10,7 @@
 
 #include "resources/resource_types.h"
 #include "systems/texture_system.h"
+#include "systems/material_system.h"
 
 typedef struct renderer_state
 {
@@ -18,30 +19,9 @@ typedef struct renderer_state
     mat4 View;
     r32 NearClip;
     r32 FarClip;
-
-    texture* TestDiffuse;
 } renderer_state;
 
 static renderer_state* RendererState;
-
-b8 EventOnDebugEvent(u16 Code, void* Sender, void* ListenerInst, event_context Data)
-{
-    const char* Names[3] = 
-    {
-        "cobblestone",
-        "paving",
-        "paving2"
-    };
-    static s8 choice = 2;
-    const char* OldName = Names[choice];
-    choice++;
-    choice %= 3;
-
-    RendererState->TestDiffuse = TextureSystemAcquire(Names[choice], true);
-    TextureSystemRelease(OldName);
-
-    return true;
-}
 
 b8 RendererInitialize(u64* MemoryRequirement, void* State, const char* ApplicationName)
 {
@@ -52,7 +32,6 @@ b8 RendererInitialize(u64* MemoryRequirement, void* State, const char* Applicati
     }
 
     RendererState = State;
-    EventRegister(EVENT_CODE_DEBUG0, RendererState, EventOnDebugEvent);
 
     RendererBackendCreate(RENDERER_BACKEND_TYPE_VULKAN, &RendererState->Backend);
     RendererState->Backend.FrameNumber = 0;
@@ -77,7 +56,6 @@ void RendererShutdown(void* State)
 {
     if(RendererState)
     {
-        EventUnregister(EVENT_CODE_DEBUG0, RendererState, EventOnDebugEvent);
         RendererState->Backend.Shutdown(&RendererState->Backend);
     }
 
@@ -130,22 +108,13 @@ b8 RendererDrawFrame(render_packet* Packet)
     {
         RendererState->Backend.UpdateGlobalState(RendererState->Projection, RendererState->View, V3Zero(), V4One(), 0);
 
-        static r32 Angle = 0.01f;
-        Angle += 0.001f;
-        quat Rotation = QuatFromAxis(V3Forward(), Angle, false);
-        mat4 Model = QuatToRot(Rotation, V3Zero());
-
-        geometry_render_data Data = {};
-        Data.ObjectID = 0;
-        Data.Model = Model;
-
-        if(!RendererState->TestDiffuse)
+        u32 Count = Packet->GeometryCount;
+        for(u32 GeometryIndex = 0;
+            GeometryIndex < Count;
+            ++GeometryIndex)
         {
-            RendererState->TestDiffuse = TextureSystemGetDefaultTexture();
+            RendererState->Backend.DrawGeometry(Packet->Geometries[GeometryIndex]);
         }
-
-        Data.Textures[0] = RendererState->TestDiffuse;
-        RendererState->Backend.UpdateObject(Data);
 
         b8 Result = EndFrame(Packet->DeltaTime);
 
@@ -159,9 +128,9 @@ b8 RendererDrawFrame(render_packet* Packet)
     return true;
 }
 
-void RendererCreateTexture(const char* Name, u32 Width, u32 Height, u32 ChannelCount, const u8* Pixels, b8 HasTransparency, texture* OutTexture)
+void RendererCreateTexture(const u8* Pixels, texture* Texture)
 {
-    RendererState->Backend.CreateTexture(Name, Width, Height, ChannelCount, Pixels, HasTransparency, OutTexture);
+    RendererState->Backend.CreateTexture(Pixels, Texture);
 }
 
 void RendererDestroyTexture(texture* Texture)
@@ -169,4 +138,24 @@ void RendererDestroyTexture(texture* Texture)
     RendererState->Backend.DestroyTexture(Texture);
 }
 
+
+b8 RendererCreateMaterial(material* Material)
+{
+    return RendererState->Backend.CreateMaterial(Material);
+}
+
+void RendererDestroyMaterial(material* Material)
+{
+    RendererState->Backend.DestroyMaterial(Material);
+}
+
+b8 RendererCreateGeometry(geometry *Geometry, u32 VertexCount, const vertex_3d *Vertices, u32 IndexCount, const u32* Indices)
+{
+    return RendererState->Backend.CreateGeometry(Geometry, VertexCount, Vertices, IndexCount, Indices);
+}
+
+void RendererDestroyGeometry(geometry* Geometry)
+{
+    RendererState->Backend.DestroyGeometry(Geometry);
+}
 

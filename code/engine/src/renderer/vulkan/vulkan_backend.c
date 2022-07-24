@@ -22,6 +22,8 @@
 
 #include "containers/darray.h"
 
+#include "systems/material_system.h"
+
 static vulkan_context Context;
 static u32 CachedFramebufferWidth;
 static u32 CachedFramebufferHeight;
@@ -38,7 +40,7 @@ void CreateCommandBuffers(renderer_backend* Backend);
 void RegenerateFramebuffers(renderer_backend* Backend, vulkan_swapchain* Swapchain, vulkan_renderpass* Renderpass);
 b8 RecreateSwapchain(renderer_backend* Backend);
 
-void UploadDataRange(vulkan_context* Context, VkCommandPool Pool, VkFence Fence, VkQueue Queue, vulkan_buffer* Buffer, u64 Offset, u64 Size, void* Data)
+void UploadDataRange(vulkan_context* Context, VkCommandPool Pool, VkFence Fence, VkQueue Queue, vulkan_buffer* Buffer, u64 Offset, u64 Size, const void* Data)
 {
     VkBufferUsageFlags Flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     vulkan_buffer Staging;
@@ -49,6 +51,11 @@ void UploadDataRange(vulkan_context* Context, VkCommandPool Pool, VkFence Fence,
     VulkanBufferCopyTo(Context, Pool, Fence, Queue, Staging.Handle, 0, Buffer->Handle, Offset, Size);
 
     VulkanDestroyBuffer(Context, &Staging);
+}
+
+void FreeDataRange(vulkan_buffer* Buffer, u64 Offset, u64 Size)
+{
+
 }
 
 b8 VulkanRendererBackendInitialize(renderer_backend* Backend, const char* ApplicationName)
@@ -201,47 +208,14 @@ b8 VulkanRendererBackendInitialize(renderer_backend* Backend, const char* Applic
 
     CreateBuffers(&Context);
 
-    // NOTE: Test code
-    const u32 VertCount = 4;
-    vertex_3d Verts[VertCount];
-    ZeroMemory(Verts, VertCount * sizeof(vertex_3d));
-
-    const r32 f = 10.0f;
-    Verts[0].Position.x = -0.5f * f;
-    Verts[0].Position.y = -0.5f * f;
-    Verts[0].TexCoord.x =  0.0f;
-    Verts[0].TexCoord.y =  0.0f;
-
-    Verts[1].Position.x =  0.5f * f;
-    Verts[1].Position.y =  0.5f * f;
-    Verts[1].TexCoord.x =  1.0f;
-    Verts[1].TexCoord.y =  1.0f;
-
-    Verts[2].Position.x = -0.5f * f;
-    Verts[2].Position.y =  0.5f * f;
-    Verts[2].TexCoord.x =  0.0f;
-    Verts[2].TexCoord.y =  1.0f;
-
-    Verts[3].Position.x =  0.5f * f;
-    Verts[3].Position.y = -0.5f * f;
-    Verts[3].TexCoord.x =  1.0f;
-    Verts[3].TexCoord.y =  0.0f;
-
-    const u32 IndexCount = 6;
-    u32 Indices[IndexCount] = {0, 1, 2, 0, 3, 1};
-
-    UploadDataRange(&Context, Context.Device.GraphicsCommandPool, 0, Context.Device.GraphicsQueue, &Context.ObjectVertexBuffer, 0, sizeof(vertex_3d) * VertCount, Verts);
-    UploadDataRange(&Context, Context.Device.GraphicsCommandPool, 0, Context.Device.GraphicsQueue, &Context.ObjectIndexBuffer , 0, sizeof(u32) * IndexCount, Indices);
-
-    u32 ObjectID = 0;
-    if(!VulkanMaterialShaderAcquireResources(&Context, &Context.MaterialShader, &ObjectID))
+    for(u32 GeometryIndex = 0;
+        GeometryIndex < VULKAN_MAX_GEOMETRY_COUNT;
+        ++GeometryIndex)
     {
-        VENG_ERROR("Failed to acquire resources!");
-        return false;
+        Context.Geometries[GeometryIndex].ID = INVALID_ID;
     }
 
     VENG_INFO("Vulkan renderer initialized successfully.");
-
     return true;
 }
 
@@ -420,20 +394,6 @@ void VulkanRendererUpdateGlobalState(mat4 Projection, mat4 View, v3 ViewPosition
     Context.MaterialShader.GlobalUBO.View       = View;
 
     VulkanMaterialShaderUpdateGlobalState(&Context, &Context.MaterialShader, Context.DeltaTime);
-}
-
-void VulkanUpdateObject(geometry_render_data RenderData)
-{
-    vulkan_command_buffer* CommandBuffer = &Context.GraphicsCommandBuffers[Context.ImageIndex];
-
-    VulkanMaterialShaderUpdateObject(&Context, &Context.MaterialShader, RenderData);
-
-    VulkanMaterialShaderUse(&Context, &Context.MaterialShader);
-
-    VkDeviceSize Offsets[1] = {0};
-    vkCmdBindVertexBuffers(CommandBuffer->Handle, 0, 1, &Context.ObjectVertexBuffer.Handle, (VkDeviceSize*)Offsets);
-    vkCmdBindIndexBuffer(CommandBuffer->Handle, Context.ObjectIndexBuffer.Handle, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(CommandBuffer->Handle, 6, 1, 0, 0, 0);
 }
 
 b8 VulkanRendererBackendEndFrame(renderer_backend* Backend, r32 DeltaTime)
@@ -666,16 +626,11 @@ b8 RecreateSwapchain(renderer_backend* Backend)
     return true;
 }
 
-void VulkanCreateTexture(const char* Name, u32 Width, u32 Height, u32 ChannelCount, const u8* Pixels, b8 HasTransparency, texture* OutTexture)
+void VulkanCreateTexture(const u8* Pixels, texture* Texture)
 {
-    OutTexture->Width  = Width;
-    OutTexture->Height = Height;
-    OutTexture->ChannelCount = ChannelCount;
-    OutTexture->Generation = INVALID_ID;
-
-    OutTexture->Data = (vulkan_texture*)Allocate(sizeof(vulkan_texture), MEMORY_TAG_TEXTURE);
-    vulkan_texture* TextureData = (vulkan_texture*)OutTexture->Data;
-    VkDeviceSize ImageSize = Width * Height * ChannelCount;
+    Texture->Data = (vulkan_texture*)Allocate(sizeof(vulkan_texture), MEMORY_TAG_TEXTURE);
+    vulkan_texture* TextureData = (vulkan_texture*)Texture->Data;
+    VkDeviceSize ImageSize = Texture->Width * Texture->Height * Texture->ChannelCount;
 
     VkFormat ImageFormat = VK_FORMAT_R8G8B8A8_UNORM;
 
@@ -686,7 +641,7 @@ void VulkanCreateTexture(const char* Name, u32 Width, u32 Height, u32 ChannelCou
 
     VulkanBufferLoadData(&Context, &Staging, 0, ImageSize, 0, Pixels);
 
-    VulkanImageCreate(&Context, VK_IMAGE_TYPE_2D, Width, Height, ImageFormat, 
+    VulkanImageCreate(&Context, VK_IMAGE_TYPE_2D, Texture->Width, Texture->Height, ImageFormat, 
                       VK_IMAGE_TILING_OPTIMAL, 
                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, 
                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -724,8 +679,7 @@ void VulkanCreateTexture(const char* Name, u32 Width, u32 Height, u32 ChannelCou
         return;
     }
 
-    OutTexture->HasTransparency = HasTransparency;
-    OutTexture->Generation++;
+    Texture->Generation++;
 }
 
 void VulkanDestroyTexture(texture* Texture)
@@ -746,3 +700,150 @@ void VulkanDestroyTexture(texture* Texture)
     }
 }
 
+b8 VulkanRendererCreateMaterial(material* Material)
+{
+    if(Material)
+    {
+        if(!VulkanMaterialShaderAcquireResources(&Context, &Context.MaterialShader, Material))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+void VulkanRendererDestroyMaterial(material* Material)
+{
+    if(Material)
+    {
+        if(Material->InternalID != INVALID_ID)
+        {
+            VulkanMaterialShaderReleaseResources(&Context, &Context.MaterialShader, Material);
+        }
+    }
+}
+
+b8 VulkanRendererCreateGeometry(geometry *Geometry, u32 VertexCount, const vertex_3d* Vertices, u32 IndexCount, const u32* Indices)
+{
+    if(!VertexCount || !IndexCount)
+    {
+        return false;
+    }
+
+    b8 IsReupload = Geometry->InternalID != INVALID_ID;
+    vulkan_geometry_data OldRange;
+
+    vulkan_geometry_data* InternalData = 0;
+    if(IsReupload)
+    {
+        InternalData = &Context.Geometries[Geometry->InternalID];
+        OldRange.IndexBufferOffset  = InternalData->IndexBufferOffset;
+        OldRange.IndexCount         = InternalData->IndexCount;
+        OldRange.IndexSize          = InternalData->IndexSize;
+        OldRange.VertexBufferOffset = InternalData->VertexBufferOffset;
+        OldRange.VertexCount        = InternalData->VertexCount;
+        OldRange.VertexSize         = InternalData->VertexSize;
+    }
+    else
+    {
+        for(u32 GeometryIndex = 0;
+            GeometryIndex < VULKAN_MAX_GEOMETRY_COUNT;
+            ++GeometryIndex)
+        {
+            Geometry->InternalID = GeometryIndex;
+            Context.Geometries[GeometryIndex].ID = GeometryIndex;
+            InternalData = &Context.Geometries[GeometryIndex];
+            break;
+        }
+    }
+
+    if(!InternalData)
+    {
+        return false;
+    }
+
+    VkCommandPool Pool = Context.Device.GraphicsCommandPool;
+    VkQueue Queue = Context.Device.GraphicsQueue;
+
+    InternalData->VertexBufferOffset = Context.GeometryVertexOffset;
+    InternalData->VertexCount = VertexCount;
+    InternalData->VertexSize = sizeof(vertex_3d) * VertexCount;
+    UploadDataRange(&Context, Pool, 0, Queue, &Context.ObjectVertexBuffer, InternalData->VertexBufferOffset, InternalData->VertexSize, Vertices);
+    Context.GeometryVertexOffset += InternalData->VertexSize;
+
+    if(IndexCount && Indices)
+    {
+        InternalData->IndexBufferOffset = Context.GeometryIndexOffset;
+        InternalData->IndexCount = IndexCount;
+        InternalData->IndexSize = sizeof(u32) * IndexCount;
+        UploadDataRange(&Context, Pool, 0, Queue, &Context.ObjectIndexBuffer, InternalData->IndexBufferOffset, InternalData->IndexSize, Indices);
+        Context.GeometryIndexOffset += InternalData->IndexSize;
+    }
+
+    if(InternalData->Generation == INVALID_ID)
+    {
+        InternalData->Generation = 0;
+    }
+    else
+    {
+        InternalData->Generation++;
+    }
+
+    if(IsReupload)
+    {
+        FreeDataRange(&Context.ObjectVertexBuffer, OldRange.VertexBufferOffset, OldRange.VertexSize);
+
+        if(OldRange.IndexSize > 0)
+        {
+            FreeDataRange(&Context.ObjectIndexBuffer, OldRange.IndexBufferOffset, OldRange.IndexSize);
+        }
+    }
+
+    return true;
+}
+
+void VulkanRendererDestroyGeometry(geometry* Geometry)
+{
+}
+
+void VulkanDrawGeometry(geometry_render_data RenderData)
+{
+    if(RenderData.Geometry && RenderData.Geometry->InternalID)
+    {
+        return;
+    }
+
+    vulkan_geometry_data* BufferData = &Context.Geometries[RenderData.Geometry->InternalID];
+    vulkan_command_buffer* CommandBuffer = &Context.GraphicsCommandBuffers[Context.ImageIndex];
+
+    VulkanMaterialShaderUse(&Context, &Context.MaterialShader);
+    VulkanMaterialShaderSetModel(&Context, &Context.MaterialShader, RenderData.Model);
+
+    material* Mat = 0;
+    if(RenderData.Geometry->Material)
+    {
+        Mat = RenderData.Geometry->Material;
+    }
+    else
+    {
+        Mat = MaterialSystemGetDefault();
+    }
+
+    VulkanMaterialShaderApplyMaterial(&Context, &Context.MaterialShader, Mat);
+
+    VkDeviceSize Offsets[1] = {BufferData->VertexBufferOffset};
+    vkCmdBindVertexBuffers(CommandBuffer->Handle, 0, 1, &Context.ObjectVertexBuffer.Handle, (VkDeviceSize*)Offsets);
+
+    if(BufferData->IndexCount > 0)
+    {
+        vkCmdBindIndexBuffer(CommandBuffer->Handle, Context.ObjectIndexBuffer.Handle, BufferData->IndexBufferOffset, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(CommandBuffer->Handle, BufferData->IndexCount, 1, 0, 0, 0);
+    }
+    else
+    {
+        vkCmdDraw(CommandBuffer->Handle, BufferData->VertexCount, 1, 0, 0);
+    }
+}

@@ -145,9 +145,11 @@ typedef struct vulkan_shader_stage
     VkPipelineShaderStageCreateInfo ShaderStageCreateInfo;
 } vulkan_shader_stage;
 
-#define OBJECT_SHADER_STAGE_COUNT 2
-#define VULKAN_OBJECT_SHADER_DESCRIPTOR_COUNT 2
-#define VULKAN_OBJECT_MAX_OBJECT_COUNT 1024
+#define MATERIAL_SHADER_STAGE_COUNT 2
+#define VULKAN_MATERIAL_SHADER_DESCRIPTOR_COUNT 2
+#define VULKAN_MATERIAL_SHADER_SAMPLER_COUNT 1
+#define VULKAN_MAX_MATERIAL_COUNT 1024
+#define VULKAN_MAX_GEOMETRY_COUNT 4096
 
 typedef struct vulkan_descriptor_state
 {
@@ -158,12 +160,12 @@ typedef struct vulkan_descriptor_state
 typedef struct vulkan_object_shader_object_state
 {
     VkDescriptorSet DescriptorSets[3];
-    vulkan_descriptor_state DescriptorStates[VULKAN_OBJECT_SHADER_DESCRIPTOR_COUNT];
+    vulkan_descriptor_state DescriptorStates[VULKAN_MATERIAL_SHADER_DESCRIPTOR_COUNT];
 } vulkan_object_shader_object_state;
 
 typedef struct vulkan_material_shader
 {
-    vulkan_shader_stage Stages[OBJECT_SHADER_STAGE_COUNT];
+    vulkan_shader_stage Stages[MATERIAL_SHADER_STAGE_COUNT];
 
     VkDescriptorPool GlobalDescriptorPool;
     VkDescriptorSetLayout GlobalDescriptorSetLayout;
@@ -183,10 +185,24 @@ typedef struct vulkan_material_shader
 
     u32 ObjectUniformBufferIndex;
 
-    vulkan_object_shader_object_state ObjectStates[VULKAN_OBJECT_MAX_OBJECT_COUNT];
+    texture_use SamplerUses[VULKAN_MATERIAL_SHADER_SAMPLER_COUNT];
+
+    vulkan_object_shader_object_state ObjectStates[VULKAN_MAX_MATERIAL_COUNT];
 
     b8 DescriptorUpdated[3];
 } vulkan_material_shader;
+
+typedef struct vulkan_geometry_data
+{
+    u32 ID;
+    u32 Generation;
+    u32 VertexCount;
+    u32 VertexSize;
+    u32 VertexBufferOffset;
+    u32 IndexCount;
+    u32 IndexSize;
+    u32 IndexBufferOffset;
+} vulkan_geometry_data;
 
 typedef struct vulkan_context
 {
@@ -232,6 +248,8 @@ typedef struct vulkan_context
 
     u64 GeometryVertexOffset;
     u64 GeometryIndexOffset;
+
+    vulkan_geometry_data Geometries[VULKAN_MAX_GEOMETRY_COUNT];
 
     s32 (*FindMemoryIndex)(u32 TypeFilter, u32 PropertyFlags);
 } vulkan_context;

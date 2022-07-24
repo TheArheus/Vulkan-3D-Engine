@@ -8,7 +8,9 @@ void VulkanMaterialShaderDestroy(vulkan_context* Context, vulkan_material_shader
 void VulkanMaterialShaderUse(vulkan_context* Context, vulkan_material_shader* Shader);
 
 void VulkanMaterialShaderUpdateGlobalState(vulkan_context* Context, vulkan_material_shader* Shader, r32 DeltaTime);
-void VulkanMaterialShaderUpdateObject(vulkan_context* Context, vulkan_material_shader* Shader, geometry_render_data RenderData);
 
-b8 VulkanMaterialShaderAcquireResources(vulkan_context* Context, vulkan_material_shader* Shader, u32* OutObjectID);
-void VulkanMaterialShaderReleaseResources(vulkan_context* Context, vulkan_material_shader* Shader, u32 ObjectID);
+void VulkanMaterialShaderSetModel(vulkan_context* Context, struct vulkan_material_shader* Shader, mat4 Model);
+void VulkanMaterialShaderApplyMaterial(vulkan_context* Context, struct vulkan_material_shader* Shader, material* Material);
+
+b8 VulkanMaterialShaderAcquireResources(vulkan_context* Context, vulkan_material_shader* Shader, material* Material);
+void VulkanMaterialShaderReleaseResources(vulkan_context* Context, vulkan_material_shader* Shader, material* Material);

@@ -4,7 +4,7 @@
 #include "core/vmemory.h"
 #include "core/logger.h"
 
-#include "platform/file_system.h"
+#include "systems/resource_system.h"
 
 b8 CreateShaderModule(vulkan_context* Context, 
                       const char* Name, const char* TypeStr, 
@@ -14,29 +14,21 @@ b8 CreateShaderModule(vulkan_context* Context,
     char FileName[512];
     StringFormat(FileName, "shaders/%s.%s.spv", Name, TypeStr);
 
+    resource BinaryResource;
+    if(!ResourceSystemLoad(FileName, RESOURCE_TYPE_BINARY, &BinaryResource))
+    {
+        VENG_ERROR("Unable to read shader module");
+        return false;
+    }
+
     ZeroMemory(&ShaderStages[StageIndex].CreateInfo, sizeof(VkShaderModuleCreateInfo));
     ShaderStages[StageIndex].CreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-
-    file_handle Handle;
-    if(!FileOpen(FileName, FILE_MODE_READ, true, &Handle))
-    {
-        VENG_ERROR("Unable to read shader module: %s", FileName);
-        return false;
-    }
-
-    u64 Size = 0;
-    u8* FileBuffer = 0;
-    if(!FileReadAllBytes(&Handle, &FileBuffer, &Size))
-    {
-        return false;
-    }
-
-    ShaderStages[StageIndex].CreateInfo.codeSize = Size;
-    ShaderStages[StageIndex].CreateInfo.pCode    = (u32*)FileBuffer;
-
-    FileClose(&Handle);
+    ShaderStages[StageIndex].CreateInfo.codeSize = BinaryResource.DataSize;
+    ShaderStages[StageIndex].CreateInfo.pCode = (u32*)BinaryResource.Data;
 
     VK_CHECK(vkCreateShaderModule(Context->Device.LogicalDevice, &ShaderStages[StageIndex].CreateInfo, Context->Allocator, &ShaderStages[StageIndex].Handle));
+
+    ResourceSystemUnload(&BinaryResource);
 
     ZeroMemory(&ShaderStages[StageIndex].ShaderStageCreateInfo, sizeof(VkPipelineShaderStageCreateInfo));
     ShaderStages[StageIndex].ShaderStageCreateInfo.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;

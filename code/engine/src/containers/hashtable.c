@@ -16,6 +16,8 @@ u64 HashName(const char* Name, u32 ElementCount)
     }
 
     Hash %= ElementCount;
+    
+    return Hash;
 }
 
 VENG_API void HashTableCreate(u64 ElementSize, u32 ElementCount, void* Memory, b8 IsPointerType, hash_table* OutHashTable)
