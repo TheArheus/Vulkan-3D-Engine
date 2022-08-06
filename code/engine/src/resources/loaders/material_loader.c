@@ -7,6 +7,8 @@
 #include "systems/resource_system.h"
 #include "math/vmath.h"
 
+#include "resources/loaders/loader_utils.h"
+
 #include "platform/file_system.h"
 
 b8 MaterialLoaderLoad(struct resource_loader* Self, const char* Name, resource* OutResource)
@@ -17,12 +19,9 @@ b8 MaterialLoaderLoad(struct resource_loader* Self, const char* Name, resource* 
     }
     
     const char* FormatStr = "%s/%s/%s%s";
-    const s32 RequiredChannelCount = 4;
     char FullFilePath[512];
 
     StringFormat(FullFilePath, FormatStr, ResourceSystemBasePath(), Self->TypePath, Name, ".vmt");
-
-    OutResource->FullPath = FullFilePath;
 
     file_handle File;
     if(!FileOpen(FullFilePath, FILE_MODE_READ, false, &File))
@@ -31,8 +30,11 @@ b8 MaterialLoaderLoad(struct resource_loader* Self, const char* Name, resource* 
         return false;
     }
 
+    OutResource->FullPath = StringDuplicate(FullFilePath);
+
     material_config* ResourceData = Allocate(sizeof(material_config), MEMORY_TAG_MATERIAL_INSTANCE);
     ResourceData->AutoRelease = true;
+    ResourceData->Type = MATERIAL_TYPE_WORLD;
     ResourceData->DiffuseColor = V4Zero();
     ResourceData->DiffuseMapName[0] = 0;
     StringCopyN(ResourceData->Name, Name, MATERIAL_NAME_MAX_LENGTH);
@@ -84,6 +86,13 @@ b8 MaterialLoaderLoad(struct resource_loader* Self, const char* Name, resource* 
                 VENG_WARN("Error parsing diffuse_color in file '%s'. Using default of white instead.", FullFilePath);
             }
         }
+        else if(IsStringsEquali(TrimmedVarName, "type"))
+        {
+            if(IsStringsEquali(TrimmedValue, "ui"))
+            {
+                ResourceData->Type = MATERIAL_TYPE_UI;
+            }
+        }
 
         ZeroMemory(LineBuf, sizeof(char) * 512);
         LineNumber++;
@@ -99,24 +108,7 @@ b8 MaterialLoaderLoad(struct resource_loader* Self, const char* Name, resource* 
 
 void MaterialLoaderUnload(struct resource_loader* Self, resource* Resource)
 {
-    if(!Self || !Resource)
-    {
-        return;
-    }
-
-    u32 PathLength = StringLength(Resource->FullPath);
-    if(PathLength)
-    {
-        Free(Resource->FullPath, sizeof(char) * PathLength + 1, MEMORY_TAG_STRING);
-    }
-
-    if(Resource->Data)
-    {
-        Free(Resource->Data, Resource->DataSize, MEMORY_TAG_MATERIAL_INSTANCE);
-        Resource->Data = 0;
-        Resource->DataSize = 0;
-        Resource->LoaderID = INVALID_ID;
-    }
+    ResourceUnload(Self, Resource, MEMORY_TAG_MATERIAL_INSTANCE);
 }
 
 resource_loader MaterialResourceLoaderCreate()

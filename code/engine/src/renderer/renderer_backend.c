@@ -9,11 +9,14 @@ b8 RendererBackendCreate(renderer_backend_type Type, renderer_backend* OutRender
     {
         OutRendererBackend->Initialize        = VulkanRendererBackendInitialize;
         OutRendererBackend->Shutdown          = VulkanRendererBackendShutdown;
-        OutRendererBackend->BeginFrame        = VulkanRendererBackendBeginFrame;
-        OutRendererBackend->UpdateGlobalState = VulkanRendererUpdateGlobalState;
         OutRendererBackend->DrawGeometry      = VulkanDrawGeometry;
-        OutRendererBackend->EndFrame          = VulkanRendererBackendEndFrame;
         OutRendererBackend->Resized           = VulkanRendererBackendResized;
+
+        OutRendererBackend->BeginFrame        = VulkanRendererBackendBeginFrame;
+        OutRendererBackend->EndFrame          = VulkanRendererBackendEndFrame;
+
+        OutRendererBackend->BeginRenderpass   = VulkanRendererBeginRenderpass;
+        OutRendererBackend->EndRenderpass     = VulkanRendererEndRenderpass;
 
         OutRendererBackend->CreateTexture     = VulkanCreateTexture;
         OutRendererBackend->DestroyTexture    = VulkanDestroyTexture;
@@ -23,6 +26,9 @@ b8 RendererBackendCreate(renderer_backend_type Type, renderer_backend* OutRender
 
         OutRendererBackend->CreateGeometry    = VulkanRendererCreateGeometry;
         OutRendererBackend->DestroyGeometry   = VulkanRendererDestroyGeometry;
+
+        OutRendererBackend->UpdateGlobalWorldState = VulkanRendererUpdateGlobalWorldState;
+        OutRendererBackend->UpdateGlobalUiState    = VulkanRendererUpdateGlobalUiState;
 
         return true;
     }
@@ -34,10 +40,14 @@ void RendererBackendDestroy(renderer_backend* RendererBackend)
 {
     RendererBackend->Initialize         = 0;
     RendererBackend->Shutdown           = 0;
-    RendererBackend->BeginFrame         = 0;
-    RendererBackend->UpdateGlobalState  = 0;
-    RendererBackend->EndFrame           = 0;
+    RendererBackend->DrawGeometry       = 0;
     RendererBackend->Resized            = 0;
+
+    RendererBackend->BeginRenderpass    = 0;
+    RendererBackend->EndRenderpass      = 0;
+
+    RendererBackend->BeginFrame         = 0;
+    RendererBackend->EndFrame           = 0;
 
     RendererBackend->CreateTexture      = 0;
     RendererBackend->DestroyTexture     = 0;
@@ -47,5 +57,8 @@ void RendererBackendDestroy(renderer_backend* RendererBackend)
 
     RendererBackend->CreateGeometry     = 0;
     RendererBackend->DestroyGeometry    = 0;
+
+    RendererBackend->UpdateGlobalWorldState = 0;
+    RendererBackend->UpdateGlobalUiState    = 0;
 }
 

@@ -64,7 +64,7 @@ b8 Update(struct game* GameInst, r32 DeltaTime)
         EventFire(EVENT_CODE_DEBUG0, GameInst, Context);
     }
 
-    r32 TempMoveSpeed = 100.0f;
+    r32 TempMoveSpeed = 50.0f;
     v3 Velocity = V3Zero();
 
     static r32 Z = 0.0f;

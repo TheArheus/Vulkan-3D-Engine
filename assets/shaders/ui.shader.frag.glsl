@@ -16,6 +16,5 @@ layout(location = 1) in struct in_data_tex_coord
 
 void main()
 {
-    vec4 TextureColor = texture(DiffuseSampler, InDataTexCoord.TexCoord);
-    OutColor = ObjectUBO.DiffuseColor * TextureColor;
+    OutColor = ObjectUBO.DiffuseColor * texture(DiffuseSampler, InDataTexCoord.TexCoord);
 }

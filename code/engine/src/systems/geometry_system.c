@@ -17,12 +17,13 @@ typedef struct geometry_system_state
 {
     geometry_system_config Config;
     geometry DefaultGeometry;
+    geometry DefaultGeometry2d;
     geometry_reference* RegisteredGeometries;
 } geometry_system_state;
 
 static geometry_system_state* StatePtr = 0;
 
-b8 CreateDefaultGeometry(geometry_system_state* State);
+b8 CreateDefaultGeometries(geometry_system_state* State);
 b8 CreateGeometry(geometry_system_state* State, geometry_config Config, geometry* Geometry);
 void DestroyGeometry(geometry_system_state* State, geometry* Geometry);
 
@@ -60,9 +61,9 @@ b8 GeometrySystemInitialize(u64* MemoryRequirement, void* State, geometry_system
         StatePtr->RegisteredGeometries[Index].Geometry.Generation = INVALID_ID;
     }
 
-    if(!CreateDefaultGeometry(StatePtr))
+    if(!CreateDefaultGeometries(StatePtr))
     {
-        VENG_FATAL("Could not create default geometry");
+        VENG_FATAL("Could not create default geometries");
         return false;
     }
 
@@ -157,13 +158,24 @@ geometry* GeometrySystemGetDefault()
         return &StatePtr->DefaultGeometry;
     }
 
-    VENG_FATAL("No default geometry.");
+    VENG_FATAL("No default 3d geometry.");
+    return 0;
+}
+
+geometry* GeometrySystemGetDefault2d()
+{
+    if(StatePtr)
+    {
+        return &StatePtr->DefaultGeometry2d;
+    }
+
+    VENG_FATAL("No default 2d geometry.");
     return 0;
 }
 
 b8 CreateGeometry(geometry_system_state* State, geometry_config Config, geometry* Geometry)
 {
-    if(!RendererCreateGeometry(Geometry, Config.VertexCount, Config.Vertices, Config.IndexCount, Config.Indices))
+    if(!RendererCreateGeometry(Geometry, Config.VertexSize, Config.VertexCount, Config.Vertices, Config.VertexSize, Config.IndexCount, Config.Indices))
     {
         State->RegisteredGeometries[Geometry->ID].ReferenceCount = 0;
         State->RegisteredGeometries[Geometry->ID].AutoRelease = false;
@@ -203,7 +215,7 @@ void DestroyGeometry(geometry_system_state* State, geometry* Geometry)
     }
 }
 
-b8 CreateDefaultGeometry(geometry_system_state* State)
+b8 CreateDefaultGeometries(geometry_system_state* State)
 {
     vertex_3d Verts[4];
     ZeroMemory(Verts, 4 * sizeof(vertex_3d));
@@ -231,13 +243,46 @@ b8 CreateDefaultGeometry(geometry_system_state* State)
 
     u32 Indices[6] = {0, 1, 2, 0, 3, 1};
 
-    if(!RendererCreateGeometry(&State->DefaultGeometry, 4, Verts, 6, Indices))
+    if(!RendererCreateGeometry(&State->DefaultGeometry, sizeof(vertex_3d), 4, Verts, sizeof(u32), 6, Indices))
     {
-        VENG_FATAL("Failed to create default geometry. Application cannot continue.");
+        VENG_FATAL("Failed to create default 3d geometry. Application cannot continue.");
         return false;
     }
 
     State->DefaultGeometry.Material = MaterialSystemGetDefault();
+
+    vertex_2d Verts2d[4];
+    ZeroMemory(Verts, 4 * sizeof(vertex_2d));
+
+    Verts2d[0].Position.x = -0.5f * f;
+    Verts2d[0].Position.y = -0.5f * f;
+    Verts2d[0].TexCoord.x =  0.0f;
+    Verts2d[0].TexCoord.y =  0.0f;
+
+    Verts2d[1].Position.x =  0.5f * f;
+    Verts2d[1].Position.y =  0.5f * f;
+    Verts2d[1].TexCoord.x =  1.0f;
+    Verts2d[1].TexCoord.y =  1.0f;
+
+    Verts2d[2].Position.x = -0.5f * f;
+    Verts2d[2].Position.y =  0.5f * f;
+    Verts2d[2].TexCoord.x =  0.0f;
+    Verts2d[2].TexCoord.y =  1.0f;
+
+    Verts2d[3].Position.x =  0.5f * f;
+    Verts2d[3].Position.y = -0.5f * f;
+    Verts2d[3].TexCoord.x =  1.0f;
+    Verts2d[3].TexCoord.y =  0.0f;
+
+    u32 Indices2d[6] = {2, 1, 0, 3, 0, 1};
+
+    if(!RendererCreateGeometry(&State->DefaultGeometry2d, sizeof(vertex_2d), 4, Verts2d, sizeof(u32), 6, Indices2d))
+    {
+        VENG_FATAL("Failed to create default 2d geometry. Application cannot continue.");
+        return false;
+    }
+
+    State->DefaultGeometry2d.Material = MaterialSystemGetDefault();
 
     return true;
 }
@@ -275,8 +320,11 @@ geometry_config GeometrySystemGeneratePlaneConfig(r32 Width, r32 Height, u32 Seg
     }
 
     geometry_config Config;
+    Config.VertexSize = sizeof(vertex_3d);
     Config.VertexCount = SegmentCountX * SegmentCountY * 4;
     Config.Vertices = Allocate(sizeof(vertex_3d) * Config.VertexCount, MEMORY_TAG_ARRAY);
+
+    Config.IndexSize = sizeof(u32);
     Config.IndexCount = SegmentCountX * SegmentCountY * 6;
     Config.Indices = Allocate(sizeof(u32) * Config.IndexCount, MEMORY_TAG_ARRAY);
 
@@ -303,10 +351,10 @@ geometry_config GeometrySystemGeneratePlaneConfig(r32 Width, r32 Height, u32 Seg
             r32 MaxCoordY = ((y+1) / (r32)SegmentCountY) * TileY;
 
             u32 OffsetV = ((y * SegmentCountY) + x) * 4;
-            vertex_3d* v0 = &Config.Vertices[OffsetV + 0];
-            vertex_3d* v1 = &Config.Vertices[OffsetV + 1];
-            vertex_3d* v2 = &Config.Vertices[OffsetV + 2];
-            vertex_3d* v3 = &Config.Vertices[OffsetV + 3];
+            vertex_3d* v0 = &((vertex_3d*)Config.Vertices)[OffsetV + 0];
+            vertex_3d* v1 = &((vertex_3d*)Config.Vertices)[OffsetV + 1];
+            vertex_3d* v2 = &((vertex_3d*)Config.Vertices)[OffsetV + 2];
+            vertex_3d* v3 = &((vertex_3d*)Config.Vertices)[OffsetV + 3];
 
             v0->Position.x = MinX;
             v0->Position.y = MinY;
@@ -329,12 +377,12 @@ geometry_config GeometrySystemGeneratePlaneConfig(r32 Width, r32 Height, u32 Seg
             v3->TexCoord.y = MinCoordY;
 
             u32 IndexOffset = ((y * SegmentCountX) + x) * 6;
-            Config.Indices[IndexOffset + 0] = OffsetV + 0;
-            Config.Indices[IndexOffset + 1] = OffsetV + 1;
-            Config.Indices[IndexOffset + 2] = OffsetV + 2;
-            Config.Indices[IndexOffset + 3] = OffsetV + 0;
-            Config.Indices[IndexOffset + 4] = OffsetV + 3;
-            Config.Indices[IndexOffset + 5] = OffsetV + 1;
+            ((u32*)Config.Indices)[IndexOffset + 0] = OffsetV + 0;
+            ((u32*)Config.Indices)[IndexOffset + 1] = OffsetV + 1;
+            ((u32*)Config.Indices)[IndexOffset + 2] = OffsetV + 2;
+            ((u32*)Config.Indices)[IndexOffset + 3] = OffsetV + 0;
+            ((u32*)Config.Indices)[IndexOffset + 4] = OffsetV + 3;
+            ((u32*)Config.Indices)[IndexOffset + 5] = OffsetV + 1;
         }
     }
 
@@ -358,5 +406,4 @@ geometry_config GeometrySystemGeneratePlaneConfig(r32 Width, r32 Height, u32 Seg
 
     return Config;
 }
-
 

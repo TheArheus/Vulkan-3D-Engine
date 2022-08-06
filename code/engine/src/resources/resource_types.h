@@ -58,11 +58,18 @@ typedef struct texture_map
     texture_use Use;
 } texture_map;
 
+typedef enum material_type
+{
+    MATERIAL_TYPE_WORLD,
+    MATERIAL_TYPE_UI,
+} material_type;
+
 typedef struct material
 {
     u32 ID;
     u32 Generation;
     u32 InternalID;
+    material_type Type;
     char Name[MATERIAL_NAME_MAX_LENGTH];
     v4 DiffuseColor;
     texture_map DiffuseMap;
@@ -71,6 +78,7 @@ typedef struct material
 typedef struct material_config
 {
     char Name[MATERIAL_NAME_MAX_LENGTH];
+    material_type Type;
     b8 AutoRelease;
     v4 DiffuseColor;
     char DiffuseMapName[TEXTURE_NAME_MAX_LENGHT];

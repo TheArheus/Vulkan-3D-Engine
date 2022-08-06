@@ -69,6 +69,12 @@ typedef union mat4
     r32 E[16];
 } mat4;
 
+typedef struct vertex_2d
+{
+    v2 Position;
+    v2 TexCoord;
+} vertex_2d;
+
 typedef struct vertex_3d
 {
     v3 Position;

@@ -77,23 +77,18 @@ typedef enum vulkan_renderpass_state
 typedef struct vulkan_renderpass
 {
     VkRenderPass Handle;
-    r32 X, Y;
-    r32 Width, Height;
-    r32 R, G, B, A;
+    v4 RenderArea;
+    v4 Color;
 
     r32 Depth;
     u32 Stencil;
 
+    u8 ClearFlags;
+    b8 HasPrevPass;
+    b8 HasNextPass;
+
     vulkan_renderpass_state State;
 } vulkan_renderpass;
-
-typedef struct vulkan_framebuffer
-{
-    VkFramebuffer Handle;
-    u32 AttachmentCount;
-    VkImageView* Attachments;
-    vulkan_renderpass* Renderpass;
-} vulkan_framebuffer;
 
 typedef struct vulkan_swapchain
 {
@@ -106,7 +101,7 @@ typedef struct vulkan_swapchain
 
     vulkan_image DepthAttachment;
 
-    vulkan_framebuffer* Framebuffers;
+    VkFramebuffer Framebuffers[3];
 } vulkan_swapchain;
 
 typedef enum vulkan_command_buffer_state
@@ -126,12 +121,6 @@ typedef struct vulkan_command_buffer
     vulkan_command_buffer_state State;
 } vulkan_command_buffer;
 
-typedef struct vulkan_fence
-{
-    VkFence Handle;
-    b8 IsSignaled;
-} vulkan_fence;
-
 typedef struct vulkan_pipeline
 {
     VkPipeline Handle;
@@ -145,9 +134,15 @@ typedef struct vulkan_shader_stage
     VkPipelineShaderStageCreateInfo ShaderStageCreateInfo;
 } vulkan_shader_stage;
 
+#define UI_SHADER_STAGE_COUNT 2
+#define VULKAN_UI_SHADER_DESCRIPTOR_COUNT 2
+#define VULKAN_UI_SHADER_SAMPLER_COUNT 1
+
 #define MATERIAL_SHADER_STAGE_COUNT 2
 #define VULKAN_MATERIAL_SHADER_DESCRIPTOR_COUNT 2
 #define VULKAN_MATERIAL_SHADER_SAMPLER_COUNT 1
+
+#define VULKAN_MAX_UI_COUNT 1024
 #define VULKAN_MAX_MATERIAL_COUNT 1024
 #define VULKAN_MAX_GEOMETRY_COUNT 4096
 
@@ -163,6 +158,46 @@ typedef struct vulkan_object_shader_object_state
     vulkan_descriptor_state DescriptorStates[VULKAN_MATERIAL_SHADER_DESCRIPTOR_COUNT];
 } vulkan_object_shader_object_state;
 
+typedef struct global_uniform_material_object
+{
+    mat4 Projection;
+    mat4 View;
+    mat4 Reserved0;
+    mat4 Reserved1;
+} global_uniform_material_object;
+
+// NOTE: material_uniform_object
+typedef struct local_uniform_material_object 
+{
+    v4 DiffuseColor;
+    v4 Reserved0;
+    v4 Reserved1;
+    v4 Reserved2;
+    mat4 Reserved3;
+    mat4 Reserved4;
+    mat4 Reserved5;
+} local_uniform_material_object;
+
+typedef struct global_uniform_ui_object
+{
+    mat4 Projection;
+    mat4 View;
+    mat4 Reserved0;
+    mat4 Reserved1;
+} global_uniform_ui_object;
+
+// NOTE: material_uniform_object
+typedef struct local_uniform_ui_object 
+{
+    v4 DiffuseColor;
+    v4 Reserved0;
+    v4 Reserved1;
+    v4 Reserved2;
+    mat4 Reserved3;
+    mat4 Reserved4;
+    mat4 Reserved5;
+} local_uniform_ui_object;
+
 typedef struct vulkan_material_shader
 {
     vulkan_shader_stage Stages[MATERIAL_SHADER_STAGE_COUNT];
@@ -172,11 +207,9 @@ typedef struct vulkan_material_shader
 
     VkDescriptorSet  GlobalDescriptorSets[3];
 
-    global_uniform_object GlobalUBO;
+    global_uniform_material_object GlobalUBO;
 
     vulkan_buffer GlobalUniformBuffer;
-
-    vulkan_pipeline Pipeline;
 
     VkDescriptorPool ObjectDescriptorPool;
     VkDescriptorSetLayout ObjectDescriptorSetLayout;
@@ -189,8 +222,35 @@ typedef struct vulkan_material_shader
 
     vulkan_object_shader_object_state ObjectStates[VULKAN_MAX_MATERIAL_COUNT];
 
-    b8 DescriptorUpdated[3];
+    vulkan_pipeline Pipeline;
 } vulkan_material_shader;
+
+typedef struct vulkan_ui_shader
+{
+    vulkan_shader_stage Stages[UI_SHADER_STAGE_COUNT];
+
+    VkDescriptorPool GlobalDescriptorPool;
+    VkDescriptorSetLayout GlobalDescriptorSetLayout;
+
+    VkDescriptorSet  GlobalDescriptorSets[3];
+
+    global_uniform_ui_object GlobalUBO;
+
+    vulkan_buffer GlobalUniformBuffer;
+
+    VkDescriptorPool ObjectDescriptorPool;
+    VkDescriptorSetLayout ObjectDescriptorSetLayout;
+
+    vulkan_buffer ObjectUniformBuffer;
+
+    u32 ObjectUniformBufferIndex;
+
+    texture_use SamplerUses[VULKAN_UI_SHADER_SAMPLER_COUNT];
+
+    vulkan_object_shader_object_state ObjectStates[VULKAN_MAX_UI_COUNT];
+
+    vulkan_pipeline Pipeline;
+} vulkan_ui_shader;
 
 typedef struct vulkan_geometry_data
 {
@@ -225,6 +285,7 @@ typedef struct vulkan_context
 
     vulkan_swapchain Swapchain;
     vulkan_renderpass MainRenderpass;
+    vulkan_renderpass UiRenderpass;
 
     vulkan_buffer ObjectVertexBuffer;
     vulkan_buffer ObjectIndexBuffer;
@@ -235,9 +296,10 @@ typedef struct vulkan_context
     VkSemaphore* QueueCompleteSemaphores;
 
     u32 InFlightFenceCount;
-    vulkan_fence* InFlightFences;
+    VkFence InFlightFences[2];
 
-    vulkan_fence** ImagesInFlight;
+    // NOTE: Holds pointers to fence, one per frame
+    VkFence* ImagesInFlight[3];
 
     u32 ImageIndex;
     u32 CurrentFrame;
@@ -245,11 +307,14 @@ typedef struct vulkan_context
     b8 RecreatingSwapchain;
 
     vulkan_material_shader MaterialShader;
+    vulkan_ui_shader UiShader;
 
     u64 GeometryVertexOffset;
     u64 GeometryIndexOffset;
 
     vulkan_geometry_data Geometries[VULKAN_MAX_GEOMETRY_COUNT];
+
+    VkFramebuffer WorldFramebuffers[3];
 
     s32 (*FindMemoryIndex)(u32 TypeFilter, u32 PropertyFlags);
 } vulkan_context;

@@ -89,14 +89,15 @@ b8 VulkanDeviceCreate(vulkan_context* Context)
 
     VkPhysicalDeviceFeatures DeviceFeatures = {};
     DeviceFeatures.samplerAnisotropy = VK_TRUE;
+    // DeviceFeatures.fillModeNonSolid = VK_TRUE; // NOTE: Remove this line or make it configurable
 
     VkDeviceCreateInfo DeviceCreateInfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     DeviceCreateInfo.queueCreateInfoCount = IndexCount;
     DeviceCreateInfo.pQueueCreateInfos = QueueCreateInfos;
     DeviceCreateInfo.pEnabledFeatures = &DeviceFeatures;
     DeviceCreateInfo.enabledExtensionCount = 1;
-    const char* ExtensionName = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-    DeviceCreateInfo.ppEnabledExtensionNames = &ExtensionName;
+    const char* ExtensionName[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, "VK_KHR_shader_non_semantic_info"};
+    DeviceCreateInfo.ppEnabledExtensionNames = ExtensionName;
 
     VK_CHECK(vkCreateDevice(Context->Device.PhysicalDevice, &DeviceCreateInfo, Context->Allocator, &Context->Device.LogicalDevice));
 

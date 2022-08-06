@@ -5,13 +5,12 @@
 #include "vulkan_swapchain.h"
 #include "vulkan_command_buffer.h"
 #include "vulkan_renderpass.h"
-#include "vulkan_framebuffer.h"
-#include "vulkan_fence.h"
 #include "vulkan_utils.h"
 #include "vulkan_buffer.h"
 #include "vulkan_image.h"
 
 #include "shaders/vulkan_material_shader.h"
+#include "shaders/vulkan_ui_shader.h"
 
 #include "core/logger.h"
 #include "core/vmemory.h"
@@ -19,14 +18,15 @@
 #include "core/application.h"
 
 #include "math/math_types.h"
+#include "math/vmath.h"
 
 #include "containers/darray.h"
 
 #include "systems/material_system.h"
 
 static vulkan_context Context;
-static u32 CachedFramebufferWidth;
-static u32 CachedFramebufferHeight;
+static u32 CachedFramebufferWidth  = 0;
+static u32 CachedFramebufferHeight = 0;
 
 VKAPI_ATTR VkBool32 DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT MessageSeverity,
                                   VkDebugUtilsMessageTypeFlagsEXT MessageTypes,
@@ -37,7 +37,7 @@ s32 FindMemoryIndex(u32 TypeFilter, u32 PropertyFlags);
 b8 CreateBuffers(vulkan_context* Context);
 
 void CreateCommandBuffers(renderer_backend* Backend);
-void RegenerateFramebuffers(renderer_backend* Backend, vulkan_swapchain* Swapchain, vulkan_renderpass* Renderpass);
+void RegenerateFramebuffers();
 b8 RecreateSwapchain(renderer_backend* Backend);
 
 void UploadDataRange(vulkan_context* Context, VkCommandPool Pool, VkFence Fence, VkQueue Queue, vulkan_buffer* Buffer, u64 Offset, u64 Size, const void* Data)
@@ -55,7 +55,6 @@ void UploadDataRange(vulkan_context* Context, VkCommandPool Pool, VkFence Fence,
 
 void FreeDataRange(vulkan_buffer* Buffer, u64 Offset, u64 Size)
 {
-
 }
 
 b8 VulkanRendererBackendInitialize(renderer_backend* Backend, const char* ApplicationName)
@@ -137,10 +136,22 @@ b8 VulkanRendererBackendInitialize(renderer_backend* Backend, const char* Applic
     InstanceCreateInfo.enabledLayerCount = RequiredValidationLayerCount;
     InstanceCreateInfo.ppEnabledLayerNames = RequiredValidationLayerNames;
 
+    VkValidationFeatureEnableEXT EnabledValidationFeature[1] = {VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT};
+    VkValidationFeaturesEXT ValidationFeatures = {VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT};
+    ValidationFeatures.enabledValidationFeatureCount = 1;
+    ValidationFeatures.pEnabledValidationFeatures = EnabledValidationFeature;
+
+    ValidationFeatures.pNext = InstanceCreateInfo.pNext;
+    InstanceCreateInfo.pNext = &ValidationFeatures;
+
     VK_CHECK(vkCreateInstance(&InstanceCreateInfo, Context.Allocator, &Context.Instance));
 
 #if defined(_DEBUG)
-    u32 LogSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | 
+    u32 LogSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+#if 1
+                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | 
+                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+#endif
                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
 
     VkDebugUtilsMessengerCreateInfoEXT DebugCreateInfo = {VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
@@ -167,19 +178,24 @@ b8 VulkanRendererBackendInitialize(renderer_backend* Backend, const char* Applic
 
     VulkanSwapchainCreate(&Context, Context.FramebufferWidth, Context.FramebufferHeight, &Context.Swapchain);
 
+    // World renderpass
     VulkanRenderpassCreate(&Context, &Context.MainRenderpass, 
-                           0, 0, Context.FramebufferWidth, Context.FramebufferHeight, 
-                           0.0f, 0.0f, 0.2f, 1.0f, 
-                           1.0f, 0);
+                           V4(0, 0, Context.FramebufferWidth, Context.FramebufferHeight), 
+                           V4(0.0f, 0.0f, 0.2f, 1.0f), 
+                           1.0f, 0, RENDERPASS_CLEAR_COLOR_BUFFER_FLAG | RENDERPASS_CLEAR_DEPTH_BUFFER_FLAG | RENDERPASS_CLEAR_STENCIL_BUFFER_FLAG, false, true);
 
-    Context.Swapchain.Framebuffers = DArrayReserve(vulkan_framebuffer, Context.Swapchain.ImageCount);
-    RegenerateFramebuffers(Backend, &Context.Swapchain, &Context.MainRenderpass);
+    // UI renderpass
+    VulkanRenderpassCreate(&Context, &Context.UiRenderpass, 
+                           V4(0, 0, Context.FramebufferWidth, Context.FramebufferHeight), 
+                           V4(0.0f, 0.0f, 0.0f, 1.0f), 
+                           1.0f, 0, RENDERPASS_CLEAR_NONE_FLAG, true, false);
+
+    RegenerateFramebuffers();
 
     CreateCommandBuffers(Backend);
 
     Context.ImageAvailableSemaphores = DArrayReserve(VkSemaphore,  Context.Swapchain.MaxFramesInFlight);
     Context.QueueCompleteSemaphores  = DArrayReserve(VkSemaphore,  Context.Swapchain.MaxFramesInFlight);
-    Context.InFlightFences           = DArrayReserve(vulkan_fence, Context.Swapchain.MaxFramesInFlight);
 
     for(u8 FrameIndex = 0;
         FrameIndex < Context.Swapchain.MaxFramesInFlight;
@@ -189,10 +205,11 @@ b8 VulkanRendererBackendInitialize(renderer_backend* Backend, const char* Applic
         vkCreateSemaphore(Context.Device.LogicalDevice, &SemaphoreCreateInfo, Context.Allocator, &Context.ImageAvailableSemaphores[FrameIndex]);
         vkCreateSemaphore(Context.Device.LogicalDevice, &SemaphoreCreateInfo, Context.Allocator, &Context.QueueCompleteSemaphores[FrameIndex]);
 
-        VulkanFenceCreate(&Context, true, &Context.InFlightFences[FrameIndex]);
+        VkFenceCreateInfo FenceCreateInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        FenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        VK_CHECK(vkCreateFence(Context.Device.LogicalDevice, &FenceCreateInfo, Context.Allocator, &Context.InFlightFences[FrameIndex]));
     }
 
-    Context.ImagesInFlight = DArrayReserve(vulkan_fence, Context.Swapchain.ImageCount);
     for(u32 ImageIndex = 0;
         ImageIndex < Context.Swapchain.ImageCount;
         ++ImageIndex)
@@ -202,7 +219,13 @@ b8 VulkanRendererBackendInitialize(renderer_backend* Backend, const char* Applic
 
     if(!VulkanMaterialShaderCreate(&Context, &Context.MaterialShader))
     {
-        VENG_ERROR("Error loading built-in basic shader");
+        VENG_ERROR("Error loading built-in material shader");
+        return false;
+    }
+
+    if(!VulkanUiShaderCreate(&Context, &Context.UiShader))
+    {
+        VENG_ERROR("Error loading built-in ui shader");
         return false;
     }
 
@@ -226,6 +249,7 @@ void VulkanRendererBackendShutdown(renderer_backend* Backend)
     VulkanDestroyBuffer(&Context, &Context.ObjectIndexBuffer);
     VulkanDestroyBuffer(&Context, &Context.ObjectVertexBuffer);
 
+    VulkanUiShaderDestroy(&Context, &Context.UiShader);
     VulkanMaterialShaderDestroy(&Context, &Context.MaterialShader);
 
     for(u8 FrameIndex = 0;
@@ -240,19 +264,13 @@ void VulkanRendererBackendShutdown(renderer_backend* Backend)
         {
             vkDestroySemaphore(Context.Device.LogicalDevice, Context.QueueCompleteSemaphores[FrameIndex], Context.Allocator);
         }
-        VulkanFenceDestroy(&Context, &Context.InFlightFences[FrameIndex]);
+        vkDestroyFence(Context.Device.LogicalDevice, Context.InFlightFences[FrameIndex], Context.Allocator);
     }
     DArrayDestroy(Context.ImageAvailableSemaphores);
     Context.ImageAvailableSemaphores = 0;
 
     DArrayDestroy(Context.QueueCompleteSemaphores);
     Context.QueueCompleteSemaphores = 0;
-
-    DArrayDestroy(Context.InFlightFences);
-    Context.InFlightFences = 0;
-
-    DArrayDestroy(Context.ImagesInFlight);
-    Context.ImagesInFlight = 0;
 
     for(u32 ImageIndex = 0;
         ImageIndex < Context.Swapchain.ImageCount;
@@ -272,9 +290,11 @@ void VulkanRendererBackendShutdown(renderer_backend* Backend)
         ImageIndex < Context.Swapchain.ImageCount;
         ++ImageIndex)
     {
-        VulkanFramebufferDestroy(&Context, &Context.Swapchain.Framebuffers[ImageIndex]);
+        vkDestroyFramebuffer(Context.Device.LogicalDevice, Context.WorldFramebuffers[ImageIndex], Context.Allocator);
+        vkDestroyFramebuffer(Context.Device.LogicalDevice, Context.Swapchain.Framebuffers[ImageIndex], Context.Allocator);
     }
 
+    VulkanRenderpassDestroy(&Context, &Context.UiRenderpass);
     VulkanRenderpassDestroy(&Context, &Context.MainRenderpass);
 
     VulkanSwapchainDestroy(&Context, &Context.Swapchain);
@@ -311,7 +331,6 @@ void VulkanRendererBackendResized(renderer_backend* Backend, u16 Width, u16 Heig
 b8 VulkanRendererBackendBeginFrame(renderer_backend* Backend, r32 DeltaTime)
 {
     Context.DeltaTime = DeltaTime;
-
     vulkan_device* Device = &Context.Device;
 
     if(Context.RecreatingSwapchain)
@@ -344,9 +363,10 @@ b8 VulkanRendererBackendBeginFrame(renderer_backend* Backend, r32 DeltaTime)
         return false;
     }
 
-    if(!VulkanFenceWait(&Context, &Context.InFlightFences[Context.CurrentFrame], UINT64_MAX))
+    VkResult WaitForFenceResult = vkWaitForFences(Context.Device.LogicalDevice, 1, &Context.InFlightFences[Context.CurrentFrame], true, UINT64_MAX);
+    if(!VulkanResultIsSuccess(WaitForFenceResult))
     {
-        VENG_WARN("In-Flight fence wait failure");
+        VENG_WARN("In-Flight fence wait failure! Error: %s", VulkanResultString(WaitForFenceResult, true));
         return false;
     }
 
@@ -374,17 +394,17 @@ b8 VulkanRendererBackendBeginFrame(renderer_backend* Backend, r32 DeltaTime)
     Scissor.extent.height = Context.FramebufferHeight;
 
     vkCmdSetViewport(CommandBuffer->Handle, 0, 1, &Viewport);
-    vkCmdSetScissor(CommandBuffer->Handle, 0, 1, &Scissor);
+    vkCmdSetScissor(CommandBuffer->Handle , 0, 1, &Scissor);
 
-    Context.MainRenderpass.Width  = Context.FramebufferWidth;
-    Context.MainRenderpass.Height = Context.FramebufferHeight;
-
-    VulkanRenderpassBegin(CommandBuffer, &Context.MainRenderpass, Context.Swapchain.Framebuffers[Context.ImageIndex].Handle);
+    Context.MainRenderpass.RenderArea.z = Context.FramebufferWidth;
+    Context.MainRenderpass.RenderArea.w = Context.FramebufferHeight;
+    Context.UiRenderpass.RenderArea.z   = Context.FramebufferWidth;
+    Context.UiRenderpass.RenderArea.w   = Context.FramebufferHeight;
 
     return true;
 }
 
-void VulkanRendererUpdateGlobalState(mat4 Projection, mat4 View, v3 ViewPosition, v4 AmbientColor, s32 Mode)
+void VulkanRendererUpdateGlobalWorldState(mat4 Projection, mat4 View, v3 ViewPosition, v4 AmbientColor, s32 Mode)
 {
     vulkan_command_buffer* CommandBuffer = &Context.GraphicsCommandBuffers[Context.ImageIndex];
 
@@ -396,21 +416,34 @@ void VulkanRendererUpdateGlobalState(mat4 Projection, mat4 View, v3 ViewPosition
     VulkanMaterialShaderUpdateGlobalState(&Context, &Context.MaterialShader, Context.DeltaTime);
 }
 
-b8 VulkanRendererBackendEndFrame(renderer_backend* Backend, r32 DeltaTime)
+void VulkanRendererUpdateGlobalUiState(mat4 Projection, mat4 View, s32 Mode)
 {
     vulkan_command_buffer* CommandBuffer = &Context.GraphicsCommandBuffers[Context.ImageIndex];
 
-    VulkanRenderpassEnd(CommandBuffer, &Context.MainRenderpass);
+    VulkanUiShaderUse(&Context, &Context.UiShader);
+
+    Context.UiShader.GlobalUBO.Projection = Projection;
+    Context.UiShader.GlobalUBO.View       = View;
+
+    VulkanUiShaderUpdateGlobalState(&Context, &Context.UiShader, Context.DeltaTime);
+}
+
+b8 VulkanRendererBackendEndFrame(renderer_backend* Backend, r32 DeltaTime)
+{
+    vulkan_command_buffer* CommandBuffer = &Context.GraphicsCommandBuffers[Context.ImageIndex];
     VulkanCommandBufferEnd(CommandBuffer);
 
     if(Context.ImagesInFlight[Context.ImageIndex] != VK_NULL_HANDLE)
     {
-        VulkanFenceWait(&Context, Context.ImagesInFlight[Context.ImageIndex], UINT64_MAX);
+        VkResult WaitForFenceResult = vkWaitForFences(Context.Device.LogicalDevice, 1, Context.ImagesInFlight[Context.ImageIndex], true, UINT64_MAX);
+        if(!VulkanResultIsSuccess(WaitForFenceResult))
+        {
+            VENG_FATAL("In-Flight fence wait failure! Error: %s", VulkanResultString(WaitForFenceResult, true));
+        }
     }
 
     Context.ImagesInFlight[Context.ImageIndex] = &Context.InFlightFences[Context.CurrentFrame];
-
-    VulkanFenceReset(&Context, &Context.InFlightFences[Context.CurrentFrame]);
+    VK_CHECK(vkResetFences(Context.Device.LogicalDevice, 1, &Context.InFlightFences[Context.CurrentFrame]));
 
     VkPipelineStageFlags Flags[1] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 
@@ -426,7 +459,7 @@ b8 VulkanRendererBackendEndFrame(renderer_backend* Backend, r32 DeltaTime)
 
     SubmitInfo.pWaitDstStageMask = Flags;
 
-    VkResult Result = vkQueueSubmit(Context.Device.GraphicsQueue, 1, &SubmitInfo, Context.InFlightFences[Context.CurrentFrame].Handle);
+    VkResult Result = vkQueueSubmit(Context.Device.GraphicsQueue, 1, &SubmitInfo, Context.InFlightFences[Context.CurrentFrame]);
 
     if(Result != VK_SUCCESS)
     {
@@ -437,6 +470,75 @@ b8 VulkanRendererBackendEndFrame(renderer_backend* Backend, r32 DeltaTime)
     VulkanCommandBufferUpdateSubmitted(CommandBuffer);
 
     VulkanSwapchainPresent(&Context, &Context.Swapchain, Context.Device.GraphicsQueue, Context.Device.PresentQueue, Context.QueueCompleteSemaphores[Context.CurrentFrame], Context.ImageIndex);
+
+    return true;
+}
+
+b8 VulkanRendererBeginRenderpass(renderer_backend* Backend, u8 RenderpassID)
+{
+    vulkan_renderpass* Renderpass = 0;
+    VkFramebuffer Framebuffer = 0;
+    vulkan_command_buffer* CommandBuffer = &Context.GraphicsCommandBuffers[Context.ImageIndex];
+
+    switch(RenderpassID)
+    {
+        case BUILTIN_RENDERPASS_WORLD:
+        {
+            Renderpass = &Context.MainRenderpass;
+            Framebuffer = Context.WorldFramebuffers[Context.ImageIndex];
+        } break;
+        case BUILTIN_RENDERPASS_UI:
+        {
+            Renderpass = &Context.UiRenderpass;
+            Framebuffer = Context.Swapchain.Framebuffers[Context.ImageIndex];
+        } break;
+        default:
+        {
+            VENG_ERROR("VulkanRendererBeginRenderpass called on unrecognized renderpass id: %#02x", RenderpassID);
+            return false;
+        } break;
+    }
+
+    VulkanRenderpassBegin(CommandBuffer, Renderpass, Framebuffer);
+
+    switch(RenderpassID)
+    {
+        case BUILTIN_RENDERPASS_WORLD:
+        {
+            VulkanMaterialShaderUse(&Context, &Context.MaterialShader);
+        } break;
+        case BUILTIN_RENDERPASS_UI:
+        {
+            VulkanUiShaderUse(&Context, &Context.UiShader);
+        } break;
+    }
+
+    return true;
+}
+
+b8 VulkanRendererEndRenderpass(renderer_backend* Backend, u8 RenderpassID)
+{
+    vulkan_renderpass* Renderpass = 0;
+    vulkan_command_buffer* CommandBuffer = &Context.GraphicsCommandBuffers[Context.ImageIndex];
+
+    switch(RenderpassID)
+    {
+        case BUILTIN_RENDERPASS_WORLD:
+        {
+            Renderpass = &Context.MainRenderpass;
+        } break;
+        case BUILTIN_RENDERPASS_UI:
+        {
+            Renderpass = &Context.UiRenderpass;
+        } break;
+        default:
+        {
+            VENG_ERROR("VulkanRendererEndRenderpass called on unrecognized renderpass id: %#02x", RenderpassID);
+            return false;
+        } break;
+    }
+
+    VulkanRenderpassEnd(CommandBuffer, Renderpass);
 
     return true;
 }
@@ -544,20 +646,36 @@ void CreateCommandBuffers(renderer_backend* Backend)
     VENG_DEBUG("Vulkan command buffers created");
 }
 
-void RegenerateFramebuffers(renderer_backend* Backend, vulkan_swapchain* Swapchain, vulkan_renderpass* Renderpass)
+void RegenerateFramebuffers()
 {
+    u32 ImageCount = Context.Swapchain.ImageCount;
     for(u32 ImageIndex = 0;
-        ImageIndex < Swapchain->ImageCount;
+        ImageIndex < ImageCount;
         ++ImageIndex)
     {
-        u32 AttachmentCount = 2;
-        VkImageView Attachments[] = 
-        {
-            Swapchain->Views[ImageIndex],
-            Swapchain->DepthAttachment.View
-        };
+        //
+        VkImageView WorldAttachments[2] = {Context.Swapchain.Views[ImageIndex], Context.Swapchain.DepthAttachment.View};
+        VkFramebufferCreateInfo FramebufferCreateInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        FramebufferCreateInfo.renderPass      = Context.MainRenderpass.Handle;
+        FramebufferCreateInfo.attachmentCount = 2;
+        FramebufferCreateInfo.pAttachments    = WorldAttachments;
+        FramebufferCreateInfo.width  = Context.FramebufferWidth;
+        FramebufferCreateInfo.height = Context.FramebufferHeight;
+        FramebufferCreateInfo.layers = 1;
 
-        VulkanFramebufferCreate(&Context, Renderpass, Context.FramebufferWidth, Context.FramebufferHeight, AttachmentCount, Attachments, &Context.Swapchain.Framebuffers[ImageIndex]);
+        vkCreateFramebuffer(Context.Device.LogicalDevice, &FramebufferCreateInfo, Context.Allocator, &Context.WorldFramebuffers[ImageIndex]);
+
+        //
+        VkImageView UiAttachments[1] = {Context.Swapchain.Views[ImageIndex]};
+        VkFramebufferCreateInfo ScFramebufferCreateInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        ScFramebufferCreateInfo.renderPass      = Context.UiRenderpass.Handle;
+        ScFramebufferCreateInfo.attachmentCount = 1;
+        ScFramebufferCreateInfo.pAttachments    = UiAttachments;
+        ScFramebufferCreateInfo.width  = Context.FramebufferWidth;
+        ScFramebufferCreateInfo.height = Context.FramebufferHeight;
+        ScFramebufferCreateInfo.layers = 1;
+
+        vkCreateFramebuffer(Context.Device.LogicalDevice, &ScFramebufferCreateInfo, Context.Allocator, &Context.Swapchain.Framebuffers[ImageIndex]);
     }
 }
 
@@ -592,8 +710,8 @@ b8 RecreateSwapchain(renderer_backend* Backend)
 
     Context.FramebufferWidth  = CachedFramebufferWidth;
     Context.FramebufferHeight = CachedFramebufferHeight;
-    Context.MainRenderpass.Width  = Context.FramebufferWidth;
-    Context.MainRenderpass.Height = Context.FramebufferHeight;
+    Context.MainRenderpass.RenderArea.z = Context.FramebufferWidth;
+    Context.MainRenderpass.RenderArea.w = Context.FramebufferHeight;
     CachedFramebufferWidth  = 0;
     CachedFramebufferHeight = 0;
 
@@ -610,15 +728,16 @@ b8 RecreateSwapchain(renderer_backend* Backend)
         ImageIndex < Context.Swapchain.ImageCount;
         ++ImageIndex)
     {
-        VulkanFramebufferDestroy(&Context, &Context.Swapchain.Framebuffers[ImageIndex]);
+        vkDestroyFramebuffer(Context.Device.LogicalDevice, Context.WorldFramebuffers[ImageIndex], Context.Allocator);
+        vkDestroyFramebuffer(Context.Device.LogicalDevice, Context.Swapchain.Framebuffers[ImageIndex], Context.Allocator);
     }
 
-    Context.MainRenderpass.X = 0;
-    Context.MainRenderpass.Y = 0;
-    Context.MainRenderpass.Width  = Context.FramebufferWidth;
-    Context.MainRenderpass.Height = Context.FramebufferHeight;
+    Context.MainRenderpass.RenderArea.x = 0;
+    Context.MainRenderpass.RenderArea.y = 0;
+    Context.MainRenderpass.RenderArea.z = Context.FramebufferWidth;
+    Context.MainRenderpass.RenderArea.w = Context.FramebufferHeight;
 
-    RegenerateFramebuffers(Backend, &Context.Swapchain, &Context.MainRenderpass);
+    RegenerateFramebuffers();
     CreateCommandBuffers(Backend);
 
     Context.RecreatingSwapchain = false;
@@ -630,7 +749,7 @@ void VulkanCreateTexture(const u8* Pixels, texture* Texture)
 {
     Texture->Data = (vulkan_texture*)Allocate(sizeof(vulkan_texture), MEMORY_TAG_TEXTURE);
     vulkan_texture* TextureData = (vulkan_texture*)Texture->Data;
-    VkDeviceSize ImageSize = Texture->Width * Texture->Height * Texture->ChannelCount;
+    VkDeviceSize ImageSize = Texture->Width * Texture->Height * 4;
 
     VkFormat ImageFormat = VK_FORMAT_R8G8B8A8_UNORM;
 
@@ -704,14 +823,38 @@ b8 VulkanRendererCreateMaterial(material* Material)
 {
     if(Material)
     {
-        if(!VulkanMaterialShaderAcquireResources(&Context, &Context.MaterialShader, Material))
+        switch(Material->Type)
         {
-            return false;
+            case MATERIAL_TYPE_WORLD:
+            {
+                if(!VulkanMaterialShaderAcquireResources(&Context, &Context.MaterialShader, Material))
+                {
+                    VENG_ERROR("VulkanRendererCreateMaterial - Failed to acquire world shader resource.");
+                    return false;
+                }
+            } break;
+
+            case MATERIAL_TYPE_UI:
+            {
+                if(!VulkanUiShaderAcquireResources(&Context, &Context.UiShader, Material))
+                {
+                    VENG_ERROR("VulkanRendererCreateMaterial - Failed to acquire ui shader resource.");
+                    return false;
+                }
+            } break;
+
+            default:
+            {
+                VENG_ERROR("VulkanRendererCreateMaterial - unknown material type");
+                return false;
+            }
         }
 
+        VENG_TRACE("VulkanRendererCreateMaterial - Material created.");
         return true;
     }
 
+    VENG_ERROR("VulkanRendererCreateMaterial - called with nullptr. Creation failed.");
     return false;
 }
 
@@ -721,15 +864,40 @@ void VulkanRendererDestroyMaterial(material* Material)
     {
         if(Material->InternalID != INVALID_ID)
         {
-            VulkanMaterialShaderReleaseResources(&Context, &Context.MaterialShader, Material);
+            switch(Material->Type)
+            {
+                case MATERIAL_TYPE_WORLD:
+                {
+                    VulkanMaterialShaderReleaseResources(&Context, &Context.MaterialShader, Material);
+                } break;
+
+                case MATERIAL_TYPE_UI:
+                {
+                    VulkanUiShaderReleaseResources(&Context, &Context.UiShader, Material);
+                } break;
+
+                default:
+                {
+                    VENG_ERROR("VulkanRendererDestroyMaterial - unknown material type");
+                } break;
+            }
         }
+        else
+        {
+            VENG_WARN("VulkanRendererDestroyMaterial - called with internal id == INVALID_ID. Nothing done here.");
+        }
+    }
+    else
+    {
+        VENG_WARN("VulkanRendererDestroyMaterial - called with nullptr. Nothing done here.");
     }
 }
 
-b8 VulkanRendererCreateGeometry(geometry *Geometry, u32 VertexCount, const vertex_3d* Vertices, u32 IndexCount, const u32* Indices)
+b8 VulkanRendererCreateGeometry(geometry* Geometry, u32 VertexSize, u32 VertexCount, const void* Vertices, u32 IndexSize, u32 IndexCount, const void* Indices)
 {
     if(!VertexCount || !IndexCount)
     {
+        VENG_ERROR("VulkanRendererCreateGeometry - requieres vertex data, but none was specified. VertexCount=%d, Vertices=%p", VertexCount, Vertices);
         return false;
     }
 
@@ -753,15 +921,19 @@ b8 VulkanRendererCreateGeometry(geometry *Geometry, u32 VertexCount, const verte
             GeometryIndex < VULKAN_MAX_GEOMETRY_COUNT;
             ++GeometryIndex)
         {
-            Geometry->InternalID = GeometryIndex;
-            Context.Geometries[GeometryIndex].ID = GeometryIndex;
-            InternalData = &Context.Geometries[GeometryIndex];
-            break;
+            if (Context.Geometries[GeometryIndex].ID == INVALID_ID)
+            {
+                Geometry->InternalID = GeometryIndex;
+                Context.Geometries[GeometryIndex].ID = GeometryIndex;
+                InternalData = &Context.Geometries[GeometryIndex];
+                break;
+            }
         }
     }
 
     if(!InternalData)
     {
+        VENG_FATAL("VulkanRendererCreateGeometry - failed to find a free index for a new geometry upload.");
         return false;
     }
 
@@ -770,17 +942,19 @@ b8 VulkanRendererCreateGeometry(geometry *Geometry, u32 VertexCount, const verte
 
     InternalData->VertexBufferOffset = Context.GeometryVertexOffset;
     InternalData->VertexCount = VertexCount;
-    InternalData->VertexSize = sizeof(vertex_3d) * VertexCount;
-    UploadDataRange(&Context, Pool, 0, Queue, &Context.ObjectVertexBuffer, InternalData->VertexBufferOffset, InternalData->VertexSize, Vertices);
-    Context.GeometryVertexOffset += InternalData->VertexSize;
+    InternalData->VertexSize = VertexSize;
+    u32 VertexBufferTotalSize = VertexSize * VertexCount;
+    UploadDataRange(&Context, Pool, 0, Queue, &Context.ObjectVertexBuffer, InternalData->VertexBufferOffset, VertexBufferTotalSize, Vertices);
+    Context.GeometryVertexOffset += VertexBufferTotalSize;
 
     if(IndexCount && Indices)
     {
         InternalData->IndexBufferOffset = Context.GeometryIndexOffset;
         InternalData->IndexCount = IndexCount;
-        InternalData->IndexSize = sizeof(u32) * IndexCount;
-        UploadDataRange(&Context, Pool, 0, Queue, &Context.ObjectIndexBuffer, InternalData->IndexBufferOffset, InternalData->IndexSize, Indices);
-        Context.GeometryIndexOffset += InternalData->IndexSize;
+        InternalData->IndexSize = IndexSize;
+        u32 IndexBufferTotalSize = IndexCount * IndexSize;
+        UploadDataRange(&Context, Pool, 0, Queue, &Context.ObjectIndexBuffer, InternalData->IndexBufferOffset, IndexBufferTotalSize, Indices);
+        Context.GeometryIndexOffset += IndexBufferTotalSize;
     }
 
     if(InternalData->Generation == INVALID_ID)
@@ -794,33 +968,47 @@ b8 VulkanRendererCreateGeometry(geometry *Geometry, u32 VertexCount, const verte
 
     if(IsReupload)
     {
-        FreeDataRange(&Context.ObjectVertexBuffer, OldRange.VertexBufferOffset, OldRange.VertexSize);
+        FreeDataRange(&Context.ObjectVertexBuffer, OldRange.VertexBufferOffset, OldRange.VertexSize * OldRange.VertexCount);
 
         if(OldRange.IndexSize > 0)
         {
-            FreeDataRange(&Context.ObjectIndexBuffer, OldRange.IndexBufferOffset, OldRange.IndexSize);
+            FreeDataRange(&Context.ObjectIndexBuffer, OldRange.IndexBufferOffset, OldRange.IndexSize * OldRange.IndexCount);
         }
     }
 
+    VENG_TRACE("VulkanRendererCreateGeometry - geometry created");
     return true;
 }
 
 void VulkanRendererDestroyGeometry(geometry* Geometry)
 {
+    if(Geometry && Geometry->InternalID != INVALID_ID)
+    {
+        vkDeviceWaitIdle(Context.Device.LogicalDevice);
+        vulkan_geometry_data* InternalData = &Context.Geometries[Geometry->InternalID];
+
+        FreeDataRange(&Context.ObjectVertexBuffer, InternalData->VertexBufferOffset, InternalData->VertexSize * InternalData->VertexCount);
+
+        if(InternalData->IndexSize > 0)
+        {
+            FreeDataRange(&Context.ObjectIndexBuffer, InternalData->IndexBufferOffset, InternalData->IndexSize * InternalData->IndexCount);
+        }
+
+        ZeroMemory(InternalData, sizeof(vulkan_geometry_data));
+        InternalData->ID = INVALID_ID;
+        InternalData->Generation = INVALID_ID;
+    }
 }
 
 void VulkanDrawGeometry(geometry_render_data RenderData)
 {
-    if(RenderData.Geometry && RenderData.Geometry->InternalID)
+    if(RenderData.Geometry && RenderData.Geometry->InternalID == INVALID_ID)
     {
         return;
     }
 
     vulkan_geometry_data* BufferData = &Context.Geometries[RenderData.Geometry->InternalID];
     vulkan_command_buffer* CommandBuffer = &Context.GraphicsCommandBuffers[Context.ImageIndex];
-
-    VulkanMaterialShaderUse(&Context, &Context.MaterialShader);
-    VulkanMaterialShaderSetModel(&Context, &Context.MaterialShader, RenderData.Model);
 
     material* Mat = 0;
     if(RenderData.Geometry->Material)
@@ -832,7 +1020,26 @@ void VulkanDrawGeometry(geometry_render_data RenderData)
         Mat = MaterialSystemGetDefault();
     }
 
-    VulkanMaterialShaderApplyMaterial(&Context, &Context.MaterialShader, Mat);
+    switch(Mat->Type)
+    {
+        case MATERIAL_TYPE_WORLD:
+        {
+            VulkanMaterialShaderSetModel(&Context, &Context.MaterialShader, RenderData.Model);
+            VulkanMaterialShaderApplyMaterial(&Context, &Context.MaterialShader, Mat);
+        } break;
+
+        case MATERIAL_TYPE_UI:
+        {
+            VulkanUiShaderSetModel(&Context, &Context.UiShader, RenderData.Model);
+            VulkanUiShaderApplyMaterial(&Context, &Context.UiShader, Mat);
+        } break;
+
+        default:
+        {
+            VENG_ERROR("VulkanDrawGeometry - unknown material type: %i", Mat->Type);
+            return;
+        }
+    }
 
     VkDeviceSize Offsets[1] = {BufferData->VertexBufferOffset};
     vkCmdBindVertexBuffers(CommandBuffer->Handle, 0, 1, &Context.ObjectVertexBuffer.Handle, (VkDeviceSize*)Offsets);
@@ -847,3 +1054,4 @@ void VulkanDrawGeometry(geometry_render_data RenderData)
         vkCmdDraw(CommandBuffer->Handle, BufferData->VertexCount, 1, 0, 0);
     }
 }
+

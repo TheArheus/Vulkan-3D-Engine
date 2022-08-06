@@ -1,0 +1,16 @@
+[DEBUG]: Window resize: 1240 642
+[WARN]: Renderer backend does not exist to accept resize
+[DEBUG]: Required Extensions:
+[DEBUG]: VK_KHR_surface
+[DEBUG]: VK_KHR_win32_surface
+[DEBUG]: VK_EXT_debug_utils
+[INFO]: Device is not a discrete GPU. Skipping
+[INFO]: Graphics | Present | Compute | Transfer | Name
+[INFO]:      1 |     1 |     1 |      1 | NVIDIA GeForce GTX 1050
+[INFO]: Selected device: 'NVIDIA GeForce GTX 1050'.
+[INFO]: GPU type is Descrete.
+[INFO]: GPU Driver version: 496.304.0
+[INFO]: Vulkan API version: 1.2.186
+[INFO]: Swapchain created successfully
+[DEBUG]: Vulkan command buffers created
+[ERROR]: Error opening file: ../assets//shaders/material.shader.vert.spv

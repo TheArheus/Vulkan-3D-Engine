@@ -6,6 +6,8 @@
 #include "resources/resource_types.h"
 #include "systems/resource_system.h"
 
+#include "resources/loaders/loader_utils.h"
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "vendor/stb_image.h"
 
@@ -58,24 +60,7 @@ b8 ImageLoaderLoad(struct resource_loader* Self, const char* Name, resource* Out
 
 void ImageLoaderUnload(struct resource_loader* Self, resource* Resource)
 {
-    if(!Self || !Resource)
-    {
-        return;
-    }
-
-    u32 PathLength = StringLength(Resource->FullPath);
-    if(PathLength)
-    {
-        Free(Resource->FullPath, sizeof(char) * PathLength + 1, MEMORY_TAG_STRING);
-    }
-
-    if(Resource->Data)
-    {
-        Free(Resource->Data, Resource->DataSize, MEMORY_TAG_TEXTURE);
-        Resource->Data = 0;
-        Resource->DataSize = 0;
-        Resource->LoaderID = INVALID_ID;
-    }
+    ResourceUnload(Self, Resource, MEMORY_TAG_TEXTURE);
 }
 
 resource_loader ImageResourceLoaderCreate()

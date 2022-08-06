@@ -11,31 +11,17 @@ typedef enum renderer_backend_type
     RENDERER_BACKEND_TYPE_DIRECTX,
 } renderer_backend_type;
 
-typedef struct global_uniform_object
-{
-    mat4 Projection;
-    mat4 View;
-    mat4 Reserved0;
-    mat4 Reserved1;
-} global_uniform_object;
-
-// NOTE: material_uniform_object
-typedef struct local_uniform_object 
-{
-    v4 DiffuseColor;
-    v4 Reserved0;
-    v4 Reserved1;
-    v4 Reserved2;
-    mat4 Reserved3;
-    mat4 Reserved4;
-    mat4 Reserved5;
-} local_uniform_object;
-
 typedef struct geometry_render_data
 {
     mat4 Model;
     geometry* Geometry;
 } geometry_render_data;
+
+typedef enum builtin_renderpass
+{
+    BUILTIN_RENDERPASS_WORLD = 0x01,
+    BUILTIN_RENDERPASS_UI    = 0x02,
+} builtin_renderpass;
 
 typedef struct renderer_backend
 {
@@ -47,9 +33,13 @@ typedef struct renderer_backend
     void (*Resized)(struct renderer_backend* Backend, u16 Width, u16 Height);
 
     b8 (*BeginFrame)(struct renderer_backend* Backend, r32 DeltaTime);
-    void (*UpdateGlobalState)(mat4 Projection, mat4 View, v3 ViewPosition, v4 AmbientColor, s32 Mode);
+    void (*UpdateGlobalWorldState)(mat4 Projection, mat4 View, v3 ViewPosition, v4 AmbientColor, s32 Mode);
+    void (*UpdateGlobalUiState)(mat4 Projection, mat4 View, s32 Mode);
     void (*DrawGeometry)(geometry_render_data RenderData);
     b8 (*EndFrame)(struct renderer_backend* Backend, r32 DeltaTime);
+
+    b8 (*BeginRenderpass)(struct renderer_backend* Backend, u8 RenderpassID);
+    b8 (*EndRenderpass)(struct renderer_backend* Backend, u8 RenderpassID);
 
     void (*CreateTexture)(const u8* Pixels, texture* Texture);
     void (*DestroyTexture)(texture* Texture);
@@ -57,7 +47,7 @@ typedef struct renderer_backend
     b8 (*CreateMaterial)(material* Material);
     void (*DestroyMaterial)(material* Material);
 
-    b8 (*CreateGeometry)(geometry* Geometry, u32 VertexCount, const vertex_3d* Vertices, u32 IndexCount, const u32* Indices);
+    b8 (*CreateGeometry)(geometry* Geometry, u32 VertexSize, u32 VertexCount, const void* Vertices, u32 IndexSize, u32 IndexCount, const void* Indices);
     void (*DestroyGeometry)(geometry* Geometry);
 } renderer_backend;
 
@@ -67,5 +57,8 @@ typedef struct render_packet
 
     u32 GeometryCount;
     geometry_render_data* Geometries;
+
+    u32 UiGeometryCount;
+    geometry_render_data* UiGeometries;
 } render_packet;
 

@@ -183,7 +183,7 @@ texture* TextureSystemAcquire(const char* Name, b8 AutoRelease)
         if(Ref.Handle == INVALID_ID)
         {
             u32 Count = StatePtr->Config.MaxTextureCount;
-            texture* Texture;
+            texture* Texture = 0;
             for(u32 TextureIndex = 0;
                 TextureIndex < Count;
                 ++TextureIndex)

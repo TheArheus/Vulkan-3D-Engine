@@ -170,5 +170,7 @@ b8 FileReadAllText(file_handle* Handle, char* OutText, u64* OutBytesRead)
         *OutBytesRead = fread(OutText, 1, Size, (FILE*)Handle->Handle);
         return *OutBytesRead == Size;
     }
+
+    return false;
 }
 

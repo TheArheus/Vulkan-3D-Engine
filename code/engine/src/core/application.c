@@ -63,6 +63,7 @@ typedef struct application_state
     void* ResourceSystem;
 
     geometry* TestGeometry;
+    geometry* TestUiGeometry;
 } application_state;
 
 static application_state* AppState;
@@ -207,6 +208,43 @@ b8 ApplicationCreate(game* GameInst)
     Free(Config.Vertices, sizeof(vertex_3d) * Config.VertexCount, MEMORY_TAG_ARRAY);
     Free(Config.Indices, sizeof(u32) * Config.IndexCount, MEMORY_TAG_ARRAY);
 
+    geometry_config UiConfig;
+    UiConfig.VertexSize  = sizeof(vertex_2d);
+    UiConfig.VertexCount = 4;
+    UiConfig.IndexSize  = sizeof(u32);
+    UiConfig.IndexCount = 6;
+    StringCopyN(UiConfig.MaterialName, "test_ui", MATERIAL_NAME_MAX_LENGTH);
+    StringCopyN(UiConfig.Name, "test_ui_geometry", GEOMETRY_NAME_MAX_LENGTH);
+
+    vertex_2d Verts[4];
+    ZeroMemory(Verts, 4 * sizeof(vertex_2d));
+    const r32 f = 512.0f;
+    Verts[0].Position.x = 0.0f;
+    Verts[0].Position.y = 0.0f;
+    Verts[0].TexCoord.x = 0.0f;
+    Verts[0].TexCoord.y = 0.0f;
+
+    Verts[1].Position.x = f;
+    Verts[1].Position.y = f;
+    Verts[1].TexCoord.x = 1.0f;
+    Verts[1].TexCoord.y = 1.0f;
+
+    Verts[2].Position.x = 0.0f;
+    Verts[2].Position.y = f;
+    Verts[2].TexCoord.x = 0.0f;
+    Verts[2].TexCoord.y = 1.0f;
+
+    Verts[3].Position.x = f;
+    Verts[3].Position.y = 0.0f;
+    Verts[3].TexCoord.x = 1.0f;
+    Verts[3].TexCoord.y = 0.0f;
+    UiConfig.Vertices = Verts;
+
+    u32 Indices[6] = {2, 1, 0, 3, 0, 1};
+    UiConfig.Indices = Indices;
+
+    AppState->TestUiGeometry = GeometrySystemAcquireFromConfig(UiConfig, true);
+
     if(!AppState->GameInst->Initialize(AppState->GameInst))
     {
         VENG_FATAL("Game failed to initialize");
@@ -263,9 +301,15 @@ b8 ApplicationRun()
             geometry_render_data TestRender;
             TestRender.Geometry = AppState->TestGeometry;
             TestRender.Model = Identity();
-
             Packet.GeometryCount = 1;
             Packet.Geometries = &TestRender;
+
+            geometry_render_data TestUiRender;
+            TestUiRender.Geometry = AppState->TestUiGeometry;
+            TestUiRender.Model = Translation(V3(0, 0, 0));
+            Packet.UiGeometryCount = 1;
+            Packet.UiGeometries = &TestUiRender;
+
             RendererDrawFrame(&Packet);
 
             r64 FrameEndTime = PlatformGetAbsoluteTime();

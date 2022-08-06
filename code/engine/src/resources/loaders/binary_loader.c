@@ -7,6 +7,8 @@
 #include "systems/resource_system.h"
 #include "platform/file_system.h"
 
+#include "resources/loaders/loader_utils.h"
+
 b8 BinaryLoaderLoad(struct resource_loader* Self, const char* Name, resource* OutResource)
 {
     if(!Self || !Name || !OutResource)
@@ -19,10 +21,10 @@ b8 BinaryLoaderLoad(struct resource_loader* Self, const char* Name, resource* Ou
 
     StringFormat(FullFilePath, FormatStr, ResourceSystemBasePath(), Self->TypePath, Name, "");
 
-    OutResource->FullPath = StringDuplicate(FullFilePath);
-
     file_handle File;
     FileOpen(FullFilePath, FILE_MODE_READ, true, &File);
+
+    OutResource->FullPath = StringDuplicate(FullFilePath);
 
     u64 FileTotalSize = 0;
     FileSize(&File, &FileTotalSize);
@@ -42,24 +44,7 @@ b8 BinaryLoaderLoad(struct resource_loader* Self, const char* Name, resource* Ou
 
 void BinaryLoaderUnload(struct resource_loader* Self, resource* Resource)
 {
-    if(!Self || !Resource)
-    {
-        return;
-    }
-
-    u32 PathLength = StringLength(Resource->FullPath);
-    if(PathLength)
-    {
-        Free(Resource->FullPath, sizeof(char) * PathLength + 1, MEMORY_TAG_STRING);
-    }
-
-    if(Resource->Data)
-    {
-        Free(Resource->Data, Resource->DataSize, MEMORY_TAG_ARRAY);
-        Resource->Data = 0;
-        Resource->DataSize = 0;
-        Resource->LoaderID = INVALID_ID;
-    }
+    ResourceUnload(Self, Resource, MEMORY_TAG_ARRAY);
 }
 
 resource_loader BinaryResourceLoaderCreate()

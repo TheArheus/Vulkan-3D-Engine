@@ -5,11 +5,11 @@
 #include "core/logger.h"
 #include "math/math_types.h"
 
-b8 VulkanGraphicsPipelineCreate(vulkan_context* Context, vulkan_renderpass* Renderpass, 
+b8 VulkanGraphicsPipelineCreate(vulkan_context* Context, vulkan_renderpass* Renderpass, u32 Stride,
                                 u32 AttributeCount, VkVertexInputAttributeDescription* Attributes,
                                 u32 DescriptorSetLayoutCount, VkDescriptorSetLayout* DescriptorSetLayouts, 
                                 u32 StageCount, VkPipelineShaderStageCreateInfo* Stages,
-                                VkViewport Viewport, VkRect2D Scissor, b8 IsWireframe, vulkan_pipeline* OutPipeline)
+                                VkViewport Viewport, VkRect2D Scissor, b8 IsWireframe, b8 DepthTestEnabled, vulkan_pipeline* OutPipeline)
 {
     VkPipelineViewportStateCreateInfo ViewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     ViewportState.viewportCount = 1;
@@ -27,10 +27,16 @@ b8 VulkanGraphicsPipelineCreate(vulkan_context* Context, vulkan_renderpass* Rend
     MultisamplingCreateInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     MultisamplingCreateInfo.minSampleShading = 1.0f;
 
-    VkPipelineDepthStencilStateCreateInfo DepthStencil = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    DepthStencil.depthTestEnable = VK_TRUE;
-    DepthStencil.depthWriteEnable = VK_TRUE;
-    DepthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    VkPipelineDepthStencilStateCreateInfo DepthStencil = {};
+    if (DepthTestEnabled)
+    {
+        DepthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        DepthStencil.depthTestEnable = VK_TRUE;
+        DepthStencil.depthWriteEnable = VK_TRUE;
+        DepthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+        DepthStencil.depthBoundsTestEnable = VK_FALSE;
+        DepthStencil.stencilTestEnable = VK_FALSE;
+    }
 
     VkPipelineColorBlendAttachmentState ColorBlendState = {};
     ColorBlendState.blendEnable = VK_TRUE;
@@ -61,7 +67,7 @@ b8 VulkanGraphicsPipelineCreate(vulkan_context* Context, vulkan_renderpass* Rend
 
     VkVertexInputBindingDescription BindingDescription;
     BindingDescription.binding = 0;
-    BindingDescription.stride = sizeof(vertex_3d);
+    BindingDescription.stride = Stride;
     BindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
     VkPipelineVertexInputStateCreateInfo VertexInputInfo = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -96,7 +102,7 @@ b8 VulkanGraphicsPipelineCreate(vulkan_context* Context, vulkan_renderpass* Rend
     PipelineCreateInfo.pViewportState = &ViewportState;
     PipelineCreateInfo.pRasterizationState = &RasterizerCreateInfo;
     PipelineCreateInfo.pMultisampleState = &MultisamplingCreateInfo;
-    PipelineCreateInfo.pDepthStencilState = &DepthStencil;
+    PipelineCreateInfo.pDepthStencilState = DepthTestEnabled ? &DepthStencil : 0;
     PipelineCreateInfo.pColorBlendState = &ColorBlendStateCreateInfo;
     PipelineCreateInfo.pDynamicState = &DynamicStateCreateInfo;
     PipelineCreateInfo.pTessellationState = 0;

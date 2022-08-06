@@ -17,5 +17,5 @@ void RendererDestroyTexture(texture* Texture);
 b8 RendererCreateMaterial(material* Material);
 void RendererDestroyMaterial(material* Material);
 
-b8 RendererCreateGeometry(geometry *Geometry, u32 VertexCount, const vertex_3d *Vertices, u32 IndexCount, const u32* Indices);
+b8 RendererCreateGeometry(geometry* Geometry, u32 VertexSize, u32 VertexCount, const void* Vertices, u32 IndexSize, u32 IndexCount, const void* Indices);
 void RendererDestroyGeometry(geometry* Geometry);

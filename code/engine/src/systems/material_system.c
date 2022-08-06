@@ -44,6 +44,8 @@ b8 MaterialSystemInitialize(u64* MemoryRequirement, void* State, material_system
     u64 ArrayRequirement = sizeof(material) * Config.MaxMaterialCount;
     u64 HashTableRequirement = sizeof(material_reference) * Config.MaxMaterialCount;
 
+    *MemoryRequirement = StructRequirement + ArrayRequirement + HashTableRequirement;
+
     if(!State)
     {
         return true;
@@ -113,7 +115,7 @@ material* MaterialSystemAcquire(const char* Name)
         return 0;
     }
 
-    material* Mat;
+    material* Mat = 0;
     if(MaterialResource.Data)
     {
         Mat = MaterialSystemAcquireFromConfig(*(material_config*)MaterialResource.Data);
@@ -231,10 +233,9 @@ b8 CreateDefaultMaterial(material_system_state* State)
     State->DefaultMaterial.DiffuseMap.Use = TEXTURE_USE_MAP_DIFFUSE;
     State->DefaultMaterial.DiffuseMap.Texture = TextureSystemGetDefaultTexture();
 
-
     if(!RendererCreateMaterial(&State->DefaultMaterial))
     {
-        VENG_FATAL("Failed to acquire renderer resources for default texture.");
+        VENG_FATAL("Failed to acquire renderer resources for default material.");
         return false;
     }
 
@@ -246,6 +247,8 @@ b8 LoadMaterial(material_config Config, material* Mat)
     ZeroMemory(Mat, sizeof(material));
 
     StringCopyN(Mat->Name, Config.Name, MATERIAL_NAME_MAX_LENGTH);
+
+    Mat->Type = Config.Type;
 
     Mat->DiffuseColor = Config.DiffuseColor;
 
